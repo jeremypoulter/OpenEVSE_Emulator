@@ -1,0 +1,8 @@
+Flask==3.0.0
+Flask-SocketIO==5.3.6
+Flask-CORS==4.0.0
+python-socketio==5.11.0
+pyserial==3.5
+eventlet==0.35.2
+pytest==7.4.3
+pytest-cov==4.1.0
