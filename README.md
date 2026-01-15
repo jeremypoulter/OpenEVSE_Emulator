@@ -40,6 +40,7 @@ python src/main.py
 
 The emulator will start with:
 - Web UI accessible at: http://localhost:8080
+- API documentation at: http://localhost:8080/api/docs
 - WebSocket endpoint at: ws://localhost:8080/ws
 - Virtual serial port (location printed in console)
 
@@ -54,6 +55,10 @@ Open your browser and navigate to `http://localhost:8080` to access the control 
 - **EV Controls**: Connect/disconnect vehicle, adjust battery SoC, set max charge rate
 - **Error Simulation**: Trigger various fault conditions for testing
 - **Serial Monitor**: View RAPI command/response traffic
+
+### API Documentation
+
+Interactive API documentation is available at `http://localhost:8080/api/docs` using Swagger UI. The OpenAPI 3.0 specification can be accessed at `http://localhost:8080/api/openapi.yaml`.
 
 ### REST API
 

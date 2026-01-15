@@ -1,0 +1,583 @@
+openapi: 3.0.3
+info:
+  title: OpenEVSE Emulator API
+  description: |
+    REST API for controlling and monitoring the OpenEVSE emulator.
+    
+    This API allows you to:
+    - Control the EVSE (charging station) state and settings
+    - Simulate EV (electric vehicle) connection and charging behavior
+    - Trigger and clear error conditions
+    - Monitor real-time status via REST or WebSocket
+    
+    ## WebSocket
+    
+    Real-time updates are available via WebSocket at `ws://localhost:8080/ws`
+    
+    Message types:
+    - `state_change`: Emitted when EVSE state changes
+    - `status_update`: Periodic status updates
+    - `error`: Emitted when an error is triggered
+    
+  version: 1.0.0
+  contact:
+    name: OpenEVSE Emulator
+    url: https://github.com/jeremypoulter/OpenEVSE_Emulator
+  license:
+    name: MIT
+    url: https://github.com/jeremypoulter/OpenEVSE_Emulator/blob/main/LICENSE
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: EVSE
+    description: EVSE (charging station) control and status
+  - name: EV
+    description: EV (electric vehicle) simulation
+  - name: Errors
+    description: Error simulation and management
+  - name: Status
+    description: Combined status information
+
+paths:
+  /api/evse/status:
+    get:
+      tags:
+        - EVSE
+      summary: Get EVSE status
+      description: Returns comprehensive EVSE status including state, current, voltage, temperature, and energy metrics
+      operationId: getEvseStatus
+      responses:
+        '200':
+          description: EVSE status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvseStatus'
+
+  /api/evse/version:
+    get:
+      tags:
+        - EVSE
+      summary: Get firmware version
+      description: Returns firmware and protocol version information
+      operationId: getVersion
+      responses:
+        '200':
+          description: Version information retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  firmware:
+                    type: string
+                    example: "8.2.1"
+                  protocol:
+                    type: string
+                    example: "5.0.1"
+
+  /api/evse/enable:
+    post:
+      tags:
+        - EVSE
+      summary: Enable charging
+      description: Exit sleep mode and enable charging (if no errors present)
+      operationId: enableEvse
+      responses:
+        '200':
+          description: EVSE enabled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Cannot enable (errors present)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/evse/disable:
+    post:
+      tags:
+        - EVSE
+      summary: Disable charging
+      description: Enter sleep mode and stop charging
+      operationId: disableEvse
+      responses:
+        '200':
+          description: EVSE disabled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/evse/reset:
+    post:
+      tags:
+        - EVSE
+      summary: Reset EVSE
+      description: Reset the EVSE state machine
+      operationId: resetEvse
+      responses:
+        '200':
+          description: EVSE reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/evse/current:
+    post:
+      tags:
+        - EVSE
+      summary: Set current capacity
+      description: Set the maximum current capacity in amps (6-80A)
+      operationId: setEvseCapacity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amps
+              properties:
+                amps:
+                  type: integer
+                  minimum: 6
+                  maximum: 80
+                  example: 32
+      responses:
+        '200':
+          description: Current capacity set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid current value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/evse/service_level:
+    post:
+      tags:
+        - EVSE
+      summary: Set service level
+      description: Set the service level (voltage)
+      operationId: setServiceLevel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - level
+              properties:
+                level:
+                  type: string
+                  enum: [L1, L2, Auto]
+                  example: "L2"
+                  description: "L1=120V, L2=240V, Auto=detect"
+      responses:
+        '200':
+          description: Service level set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid service level
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ev/status:
+    get:
+      tags:
+        - EV
+      summary: Get EV status
+      description: Returns EV simulator status including connection state, SoC, and charging rate
+      operationId: getEvStatus
+      responses:
+        '200':
+          description: EV status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvStatus'
+
+  /api/ev/connect:
+    post:
+      tags:
+        - EV
+      summary: Connect EV
+      description: Simulate EV connection to the charging station
+      operationId: connectEv
+      responses:
+        '200':
+          description: EV connected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/ev/disconnect:
+    post:
+      tags:
+        - EV
+      summary: Disconnect EV
+      description: Simulate EV disconnection from the charging station
+      operationId: disconnectEv
+      responses:
+        '200':
+          description: EV disconnected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/ev/request_charge:
+    post:
+      tags:
+        - EV
+      summary: Request charge
+      description: Simulate EV requesting to charge
+      operationId: requestCharge
+      responses:
+        '200':
+          description: Charge request sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/ev/stop_charge:
+    post:
+      tags:
+        - EV
+      summary: Stop charge
+      description: Simulate EV stopping charge request
+      operationId: stopCharge
+      responses:
+        '200':
+          description: Charge stopped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/ev/soc:
+    post:
+      tags:
+        - EV
+      summary: Set battery SoC
+      description: Set the battery state of charge percentage (0-100%)
+      operationId: setEvSoc
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - soc
+              properties:
+                soc:
+                  type: number
+                  format: float
+                  minimum: 0
+                  maximum: 100
+                  example: 50.0
+      responses:
+        '200':
+          description: SoC set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid SoC value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ev/max_rate:
+    post:
+      tags:
+        - EV
+      summary: Set maximum charge rate
+      description: Set the EV's maximum charging rate in amps
+      operationId: setEvMaxRate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amps
+              properties:
+                amps:
+                  type: number
+                  format: float
+                  minimum: 0
+                  example: 32.0
+      responses:
+        '200':
+          description: Max rate set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid max rate value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/errors/trigger:
+    post:
+      tags:
+        - Errors
+      summary: Trigger error
+      description: Simulate a specific error condition
+      operationId: triggerError
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - error
+              properties:
+                error:
+                  type: string
+                  enum:
+                    - gfci
+                    - stuck_relay
+                    - no_ground
+                    - diode_check
+                    - over_temp
+                    - gfi_self_test
+                  example: "gfci"
+                  description: Type of error to trigger
+      responses:
+        '200':
+          description: Error triggered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Unknown error type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/errors/clear:
+    post:
+      tags:
+        - Errors
+      summary: Clear errors
+      description: Clear all active error conditions
+      operationId: clearErrors
+      responses:
+        '200':
+          description: Errors cleared successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/errors/status:
+    get:
+      tags:
+        - Errors
+      summary: Get error status
+      description: Returns active error flags and error counters
+      operationId: getErrorStatus
+      responses:
+        '200':
+          description: Error status retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error_flags:
+                    type: integer
+                    description: Bitwise error flags
+                    example: 0
+                  error_counts:
+                    type: object
+                    properties:
+                      gfci:
+                        type: integer
+                        example: 0
+                      no_ground:
+                        type: integer
+                        example: 0
+                      stuck_relay:
+                        type: integer
+                        example: 0
+
+  /api/status:
+    get:
+      tags:
+        - Status
+      summary: Get combined status
+      description: Returns combined EVSE and EV status
+      operationId: getCombinedStatus
+      responses:
+        '200':
+          description: Combined status retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  evse:
+                    $ref: '#/components/schemas/EvseStatus'
+                  ev:
+                    $ref: '#/components/schemas/EvStatus'
+
+components:
+  schemas:
+    EvseStatus:
+      type: object
+      properties:
+        state:
+          type: integer
+          description: EVSE state code (1=Not Connected, 2=Connected, 3=Charging, 4=Vent Required, 253=Sleep, 254=Error)
+          example: 1
+        state_name:
+          type: string
+          description: Human-readable state name
+          example: "STATE_A_NOT_CONNECTED"
+        current_capacity:
+          type: integer
+          description: Maximum current capacity in amps
+          example: 32
+        actual_current:
+          type: number
+          format: float
+          description: Actual current being delivered in amps
+          example: 0.0
+        voltage:
+          type: integer
+          description: Voltage in millivolts
+          example: 240000
+        temperature_ds:
+          type: number
+          format: float
+          description: DS temperature sensor reading in °C
+          example: 25.0
+        temperature_mcp:
+          type: number
+          format: float
+          description: MCP temperature sensor reading in °C
+          example: 25.0
+        session_energy_wh:
+          type: integer
+          description: Energy delivered in current session in Wh
+          example: 0
+        total_energy_wh:
+          type: integer
+          description: Total energy delivered in Wh
+          example: 0
+        session_time:
+          type: integer
+          description: Current session time in seconds
+          example: 0
+        service_level:
+          type: string
+          description: Service level (L1, L2, or Auto)
+          example: "L2"
+        error_flags:
+          type: integer
+          description: Bitwise error flags
+          example: 0
+        gfci_count:
+          type: integer
+          description: GFCI trip counter
+          example: 0
+        no_ground_count:
+          type: integer
+          description: No ground error counter
+          example: 0
+        stuck_relay_count:
+          type: integer
+          description: Stuck relay counter
+          example: 0
+        firmware_version:
+          type: string
+          example: "8.2.1"
+        protocol_version:
+          type: string
+          example: "5.0.1"
+
+    EvStatus:
+      type: object
+      properties:
+        connected:
+          type: boolean
+          description: Whether EV is connected
+          example: false
+        requesting_charge:
+          type: boolean
+          description: Whether EV is requesting to charge
+          example: false
+        soc:
+          type: number
+          format: float
+          description: Battery state of charge percentage (0-100)
+          example: 50.0
+        battery_capacity_kwh:
+          type: number
+          format: float
+          description: Total battery capacity in kWh
+          example: 75
+        max_charge_rate_kw:
+          type: number
+          format: float
+          description: Maximum charge rate in kW
+          example: 7.2
+        actual_charge_rate_kw:
+          type: number
+          format: float
+          description: Actual charging rate in kW
+          example: 0.0
+        diode_check_failed:
+          type: boolean
+          description: Whether diode check has failed
+          example: false
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Error message"

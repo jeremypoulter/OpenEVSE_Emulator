@@ -56,6 +56,302 @@ class WebAPI:
         def index():
             return send_from_directory(self.app.static_folder, 'index.html')
         
+        # Serve OpenAPI specification
+        @self.app.route('/api/openapi.yaml', methods=['GET'])
+        def get_openapi_spec():
+            """Serve the OpenAPI specification file."""
+            import os
+            root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            return send_from_directory(root_dir, 'openapi.yaml', mimetype='text/yaml')
+        
+        @self.app.route('/api/docs', methods=['GET'])
+        def api_docs():
+            """Serve API documentation page."""
+            return '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenEVSE Emulator API Documentation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 { color: #667eea; border-bottom: 3px solid #667eea; padding-bottom: 10px; }
+        h2 { color: #764ba2; margin-top: 30px; }
+        .info-box {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .download-btn {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 10px 0;
+        }
+        .download-btn:hover {
+            background: #5568d3;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #667eea;
+            color: white;
+        }
+        .back-link {
+            margin-bottom: 20px;
+        }
+        .back-link a {
+            color: #667eea;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="back-link">
+        <a href="/">&larr; Back to Emulator UI</a>
+    </div>
+
+    <h1>OpenEVSE Emulator API Documentation</h1>
+    
+    <div class="info-box">
+        <strong>Base URL:</strong> <code>http://localhost:8080</code><br>
+        <strong>API Version:</strong> 1.0.0<br>
+        <strong>OpenAPI Specification:</strong> <a href="/api/openapi.yaml" class="download-btn">Download openapi.yaml</a>
+    </div>
+
+    <h2>Quick Start</h2>
+    <p>View the interactive API documentation using Swagger UI or any OpenAPI-compatible tool:</p>
+    <pre>
+# Using Docker with Swagger UI
+docker run -p 8081:8080 -e SWAGGER_JSON=/api/openapi.yaml \\
+  swaggerapi/swagger-ui
+
+# Or use online Swagger Editor
+# Visit: https://editor.swagger.io/
+# Then File > Import URL > http://localhost:8080/api/openapi.yaml
+    </pre>
+
+    <h2>API Endpoints</h2>
+
+    <h3>EVSE Control</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>GET</td>
+            <td><code>/api/evse/status</code></td>
+            <td>Get EVSE status</td>
+        </tr>
+        <tr>
+            <td>GET</td>
+            <td><code>/api/evse/version</code></td>
+            <td>Get firmware version</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/evse/enable</code></td>
+            <td>Enable charging</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/evse/disable</code></td>
+            <td>Disable charging (sleep mode)</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/evse/reset</code></td>
+            <td>Reset EVSE</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/evse/current</code></td>
+            <td>Set current capacity (6-80A)</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/evse/service_level</code></td>
+            <td>Set service level (L1/L2/Auto)</td>
+        </tr>
+    </table>
+
+    <h3>EV Simulation</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>GET</td>
+            <td><code>/api/ev/status</code></td>
+            <td>Get EV status</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/ev/connect</code></td>
+            <td>Connect EV</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/ev/disconnect</code></td>
+            <td>Disconnect EV</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/ev/request_charge</code></td>
+            <td>Request charge</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/ev/stop_charge</code></td>
+            <td>Stop charging</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/ev/soc</code></td>
+            <td>Set battery SoC (0-100%)</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/ev/max_rate</code></td>
+            <td>Set max charge rate</td>
+        </tr>
+    </table>
+
+    <h3>Error Simulation</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>GET</td>
+            <td><code>/api/errors/status</code></td>
+            <td>Get error status</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/errors/trigger</code></td>
+            <td>Trigger error (gfci, stuck_relay, no_ground, etc.)</td>
+        </tr>
+        <tr>
+            <td>POST</td>
+            <td><code>/api/errors/clear</code></td>
+            <td>Clear all errors</td>
+        </tr>
+    </table>
+
+    <h3>Combined Status</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>GET</td>
+            <td><code>/api/status</code></td>
+            <td>Get combined EVSE and EV status</td>
+        </tr>
+    </table>
+
+    <h2>Example Requests</h2>
+
+    <h3>Connect EV and Start Charging</h3>
+    <pre>
+# Connect EV
+curl -X POST http://localhost:8080/api/ev/connect
+
+# Request charge
+curl -X POST http://localhost:8080/api/ev/request_charge
+
+# Set current to 16A
+curl -X POST http://localhost:8080/api/evse/current \\
+  -H "Content-Type: application/json" \\
+  -d '{"amps": 16}'
+
+# Get status
+curl http://localhost:8080/api/status
+    </pre>
+
+    <h3>Trigger GFCI Error</h3>
+    <pre>
+curl -X POST http://localhost:8080/api/errors/trigger \\
+  -H "Content-Type: application/json" \\
+  -d '{"error": "gfci"}'
+    </pre>
+
+    <h2>WebSocket</h2>
+    <p>Real-time updates are available via WebSocket at <code>ws://localhost:8080/ws</code></p>
+    
+    <h3>Message Types</h3>
+    <ul>
+        <li><code>state_change</code> - EVSE state changes</li>
+        <li><code>status_update</code> - Periodic status updates</li>
+        <li><code>error</code> - Error events</li>
+    </ul>
+
+    <h3>JavaScript Example</h3>
+    <pre>
+const ws = new WebSocket('ws://localhost:8080/ws');
+
+ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    console.log('Message type:', msg.type);
+    console.log('Data:', msg.data);
+};
+    </pre>
+
+    <h2>Full Specification</h2>
+    <p>Download the complete OpenAPI 3.0 specification for use with code generators, testing tools, or API clients:</p>
+    <a href="/api/openapi.yaml" class="download-btn">Download openapi.yaml</a>
+
+    <footer style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
+        <p>OpenEVSE Emulator API Documentation | <a href="https://github.com/jeremypoulter/OpenEVSE_Emulator">GitHub</a></p>
+    </footer>
+</body>
+</html>
+            '''
+        
         # EVSE endpoints
         @self.app.route('/api/evse/status', methods=['GET'])
         def get_evse_status():
