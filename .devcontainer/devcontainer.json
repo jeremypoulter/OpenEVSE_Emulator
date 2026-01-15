@@ -1,0 +1,53 @@
+{
+  "name": "OpenEVSE Emulator",
+  "dockerFile": "../Dockerfile",
+  "context": "..",
+  
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.flake8Enabled": true,
+        "python.formatting.provider": "black",
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "editor.formatOnSave": true,
+        "files.trimTrailingWhitespace": true
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.flake8",
+        "redhat.vscode-yaml",
+        "42crunch.vscode-openapi"
+      ]
+    }
+  },
+
+  "forwardPorts": [8080, 8023],
+  "portsAttributes": {
+    "8080": {
+      "label": "Web UI & API",
+      "onAutoForward": "notify"
+    },
+    "8023": {
+      "label": "TCP Serial Port",
+      "onAutoForward": "silent"
+    }
+  },
+
+  "postCreateCommand": "pip install -e . && pip install pytest pytest-cov black flake8",
+
+  "remoteUser": "root",
+
+  "containerEnv": {
+    "PYTHONUNBUFFERED": "1"
+  },
+
+  "mounts": [
+    "source=${localWorkspaceFolder}/config.json,target=/app/config.json,type=bind"
+  ]
+}

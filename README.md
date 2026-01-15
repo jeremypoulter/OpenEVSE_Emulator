@@ -19,8 +19,11 @@ A Python-based software emulator for the [OpenEVSE](https://github.com/OpenEVSE/
 
 - Python 3.8 or higher
 - pip (Python package manager)
+- Docker (optional, for containerized deployment)
 
 ### Installation
+
+#### Option 1: Local Installation
 
 1. Clone the repository:
 ```bash
@@ -38,11 +41,31 @@ pip install -r requirements.txt
 python src/main.py
 ```
 
+#### Option 2: Docker
+
+1. Build and run using Docker:
+```bash
+docker build -t openevse-emulator .
+docker run -p 8080:8080 -p 8023:8023 openevse-emulator
+```
+
+2. Or use Docker Compose:
+```bash
+docker-compose up
+```
+
+#### Option 3: VSCode Devcontainer
+
+1. Open the project in VSCode
+2. Install the "Remote - Containers" extension
+3. Click "Reopen in Container" when prompted
+4. The development environment will be automatically configured
+
 The emulator will start with:
 - Web UI accessible at: http://localhost:8080
 - API documentation at: http://localhost:8080/api/docs
 - WebSocket endpoint at: ws://localhost:8080/ws
-- Virtual serial port (location printed in console)
+- Virtual serial port (location printed in console, or TCP on port 8023)
 
 ## Usage
 
@@ -142,6 +165,63 @@ Edit `config.json` to customize emulator settings:
   }
 }
 ```
+
+**Note for Docker**: When running in Docker, use `"mode": "tcp"` for the serial port to enable network-based serial communication.
+
+## Docker Deployment
+
+### Building the Image
+
+```bash
+docker build -t openevse-emulator .
+```
+
+### Running with Docker
+
+Basic run:
+```bash
+docker run -p 8080:8080 -p 8023:8023 openevse-emulator
+```
+
+With custom configuration:
+```bash
+docker run -p 8080:8080 -p 8023:8023 \
+  -v $(pwd)/config.json:/app/config.json:ro \
+  openevse-emulator
+```
+
+### Running with Docker Compose
+
+```bash
+# Start in foreground
+docker-compose up
+
+# Start in background
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop
+docker-compose down
+```
+
+### VSCode Devcontainer
+
+The devcontainer provides a fully configured development environment with:
+- Python 3.11
+- All dependencies pre-installed
+- VSCode extensions for Python, YAML, and OpenAPI
+- Automatic linting and formatting
+- Port forwarding for web UI and API
+
+To use:
+1. Install the "Remote - Containers" extension in VSCode
+2. Open the project folder
+3. Click "Reopen in Container" in the notification
+4. Wait for the container to build and start
+
+The emulator can be run inside the container using the integrated terminal.
 
 ## RAPI Command Reference
 
