@@ -284,6 +284,12 @@ To test the emulator with actual OpenEVSE WiFi firmware:
 - Check serial monitor in Web UI for command history
 - Verify serial port connection
 
+## Security Considerations
+
+- **Network Binding**: By default, the web server binds to `0.0.0.0` (all interfaces) for easy access from other machines on your network. For localhost-only access, change `web.host` to `127.0.0.1` in `config.json`.
+- **No Authentication**: The emulator does not include authentication. Do not expose it to untrusted networks.
+- **Development Use**: This emulator is intended for development and testing purposes only.
+
 ## Documentation
 
 - [SPEC.md](SPEC.md) - Detailed technical specification
