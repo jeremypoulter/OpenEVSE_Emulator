@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenEVSE Emulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>OpenEVSE Emulator</h1>
+        <p class="subtitle">Electric Vehicle Charging Station Simulator</p>
+    </header>
+
+    <div class="container">
+        <!-- Status Dashboard -->
+        <div class="panel dashboard">
+            <h2>Status Dashboard</h2>
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-label">EVSE State</div>
+                    <div id="evse-state" class="status-value state-indicator">READY</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Current</div>
+                    <div id="current" class="status-value">0.0 A</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Voltage</div>
+                    <div id="voltage" class="status-value">240 V</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Power</div>
+                    <div id="power" class="status-value">0.0 kW</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Battery SoC</div>
+                    <div id="soc" class="status-value">50%</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Session Energy</div>
+                    <div id="energy" class="status-value">0.0 kWh</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Session Time</div>
+                    <div id="session-time" class="status-value">00:00:00</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Temperature</div>
+                    <div id="temperature" class="status-value">25.0°C</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- EVSE Controls -->
+        <div class="panel">
+            <h2>EVSE Controls</h2>
+            <div class="controls">
+                <div class="control-group">
+                    <button id="btn-enable" class="btn btn-success">Enable Charging</button>
+                    <button id="btn-disable" class="btn btn-warning">Sleep Mode</button>
+                    <button id="btn-reset" class="btn btn-secondary">Reset</button>
+                </div>
+                
+                <div class="control-group">
+                    <label for="current-capacity">Current Capacity: <span id="current-capacity-value">32</span> A</label>
+                    <input type="range" id="current-capacity" min="6" max="80" value="32" step="1">
+                </div>
+                
+                <div class="control-group">
+                    <label for="service-level">Service Level:</label>
+                    <select id="service-level">
+                        <option value="L1">L1 (120V)</option>
+                        <option value="L2" selected>L2 (240V)</option>
+                        <option value="Auto">Auto</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- EV Controls -->
+        <div class="panel">
+            <h2>EV Simulator</h2>
+            <div class="controls">
+                <div class="control-group">
+                    <button id="btn-connect" class="btn btn-primary">Connect EV</button>
+                    <button id="btn-disconnect" class="btn btn-secondary">Disconnect EV</button>
+                </div>
+                
+                <div class="control-group">
+                    <button id="btn-request-charge" class="btn btn-success">Request Charge</button>
+                    <button id="btn-stop-charge" class="btn btn-warning">Stop Charge</button>
+                </div>
+                
+                <div class="control-group">
+                    <label for="battery-soc">Battery SoC: <span id="battery-soc-value">50</span>%</label>
+                    <input type="range" id="battery-soc" min="0" max="100" value="50" step="1">
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Simulation -->
+        <div class="panel">
+            <h2>Error Simulation</h2>
+            <div class="controls">
+                <div class="error-buttons">
+                    <button class="btn btn-danger" data-error="gfci">GFCI Trip</button>
+                    <button class="btn btn-danger" data-error="stuck_relay">Stuck Relay</button>
+                    <button class="btn btn-danger" data-error="no_ground">No Ground</button>
+                    <button class="btn btn-danger" data-error="diode_check">Diode Check Failed</button>
+                    <button class="btn btn-danger" data-error="over_temp">Over Temperature</button>
+                    <button class="btn btn-danger" data-error="gfi_self_test">GFI Self-Test Failed</button>
+                </div>
+                <div class="control-group">
+                    <button id="btn-clear-errors" class="btn btn-success">Clear All Errors</button>
+                </div>
+                <div class="error-counts">
+                    <h3>Error Counters</h3>
+                    <div>GFCI: <span id="error-count-gfci">0</span></div>
+                    <div>No Ground: <span id="error-count-no-ground">0</span></div>
+                    <div>Stuck Relay: <span id="error-count-stuck-relay">0</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Serial Monitor -->
+        <div class="panel serial-monitor">
+            <h2>RAPI Serial Monitor</h2>
+            <div class="serial-output" id="serial-output">
+                <div class="serial-line info">OpenEVSE Emulator - Serial Monitor Active</div>
+            </div>
+            <div class="serial-input-container">
+                <input type="text" id="serial-input" placeholder="Enter RAPI command (e.g., $GS)">
+                <button id="btn-send-command" class="btn btn-primary">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>OpenEVSE Emulator v1.0.0 | 
+           <a href="https://github.com/jeremypoulter/OpenEVSE_Emulator" target="_blank">GitHub</a> | 
+           <a href="SPEC.md" target="_blank">Documentation</a>
+        </p>
+    </footer>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
