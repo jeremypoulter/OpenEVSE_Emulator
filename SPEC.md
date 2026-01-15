@@ -2,7 +2,10 @@
 
 ## Overview
 
-The OpenEVSE Emulator is a Python-based software emulator that simulates both the OpenEVSE charging station firmware and a connected Electric Vehicle (EV). It enables WiFi firmware developers to test and develop against a virtual charging station without requiring physical hardware.
+The OpenEVSE Emulator is a Python-based software emulator that simulates both
+the OpenEVSE charging station firmware and a connected Electric Vehicle (EV).
+It enables WiFi firmware developers to test and develop against a virtual
+charging station without requiring physical hardware.
 
 ## Architecture
 
@@ -16,7 +19,7 @@ The OpenEVSE Emulator is a Python-based software emulator that simulates both th
 
 ### System Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                        Web UI (HTML/CSS/JS)                  │
 └──────────────────────────┬──────────────────────────────────┘
@@ -49,13 +52,14 @@ The OpenEVSE Emulator is a Python-based software emulator that simulates both th
 │  Virtual Serial Port      │
 │  (pty or TCP socket)      │
 └───────────────────────────┘
-```
+```text
 
 ## RAPI Protocol Implementation
 
 ### Protocol Specification
 
 The RAPI protocol uses ASCII commands with the following format:
+
 - Commands start with `$`
 - Followed by a two-letter command code
 - Optional parameters separated by spaces
@@ -67,7 +71,7 @@ The RAPI protocol uses ASCII commands with the following format:
 #### Query Commands (Gx)
 
 | Command | Description | Response Format |
-|---------|-------------|-----------------|
+| --------- | ------------- | ----------------- |
 | `$GS` | Get EVSE state | `$OK <state> <elapsed_time>` |
 | `$GG` | Get real-time current and voltage | `$OK <milliamps> <millivolts> <state> <flags>` |
 | `$GP` | Get temperature | `$OK <temp_ds> <temp_mcp> <temp_ds_err> <temp_mcp_err>` |
@@ -83,10 +87,10 @@ The RAPI protocol uses ASCII commands with the following format:
 #### Control Commands (Sx/Fx)
 
 | Command | Description | Response |
-|---------|-------------|----------|
+| --------- | ------------- | ---------- |
 | `$SC <amps>` | Set current capacity (6-80A) | `$OK` or `$NK` |
 | `$SL <level>` | Set service level (1=L1, 2=L2, A=Auto) | `$OK` or `$NK` |
-| `$SE <0\|1>` | Set echo mode | `$OK` |
+| `$SE <0\ | 1>` | Set echo mode | `$OK` |
 | `$ST <minutes>` | Set time limit | `$OK` or `$NK` |
 | `$SH <kwh>` | Set kWh limit | `$OK` or `$NK` |
 | `$FE` | Enable charging (sleep → active) | `$OK` or `$NK` |
@@ -100,7 +104,7 @@ The RAPI protocol uses ASCII commands with the following format:
 The emulator implements the SAE J1772 charging states:
 
 | State | Code | Description | Pilot Voltage | LED Color |
-|-------|------|-------------|---------------|-----------|
+| ------- | ------ | ------------- | --------------- | ----------- |
 | A | 0x01 | Ready (Not Connected) | +12V | Green |
 | B | 0x02 | Connected (Not Charging) | +9V | Yellow |
 | C | 0x03 | Charging | +6V | Blue |
@@ -109,6 +113,7 @@ The emulator implements the SAE J1772 charging states:
 | Sleep | 0xFD | Sleep Mode | N/A | Off |
 
 State transitions are triggered by:
+
 - EV connection/disconnection
 - Vehicle requesting charge
 - Command to enable/disable charging
@@ -123,7 +128,7 @@ State transitions are triggered by:
 - **Battery State of Charge (SoC)**: 0-100%
 - **Maximum Charge Rate**: User configurable (amps)
 - **Charge Acceptance Rate**: Simulated battery acceptance (kW)
-- **Error Modes**: 
+- **Error Modes**:
   - Diode check failure
   - Invalid pilot signal
   - Communication timeout
@@ -131,6 +136,7 @@ State transitions are triggered by:
 ### Charging Simulation
 
 When charging is active (State C):
+
 - Battery SoC increases over time based on charge rate
 - Charging automatically stops at 100% SoC
 - Energy consumption is tracked (Wh)
@@ -141,7 +147,7 @@ When charging is active (State C):
 The emulator can simulate various error conditions:
 
 | Error | Code | Description | Trigger |
-|-------|------|-------------|---------|
+| ------- | ------ | ------------- | --------- |
 | GFCI Trip | 0x01 | Ground Fault Circuit Interrupter | API/UI control |
 | Stuck Relay | 0x02 | Relay failed to open/close | API/UI control |
 | No Ground | 0x04 | Ground connection lost | API/UI control |
@@ -155,7 +161,7 @@ The emulator can simulate various error conditions:
 
 #### EVSE Control
 
-```
+```text
 POST /api/evse/enable
 POST /api/evse/disable
 POST /api/evse/reset
@@ -163,11 +169,11 @@ POST /api/evse/current
   Body: {"amps": 16}
 POST /api/evse/service_level
   Body: {"level": "L2"}
-```
+```text
 
 #### EVSE Status
 
-```
+```text
 GET /api/evse/status
   Response: {
     "state": "charging",
@@ -185,11 +191,11 @@ GET /api/evse/version
     "firmware": "8.2.1",
     "protocol": "5.0.1"
   }
-```
+```text
 
 #### EV Control
 
-```
+```text
 POST /api/ev/connect
 POST /api/ev/disconnect
 POST /api/ev/request_charge
@@ -198,11 +204,11 @@ POST /api/ev/soc
   Body: {"soc": 50}
 POST /api/ev/max_rate
   Body: {"amps": 32}
-```
+```text
 
 #### EV Status
 
-```
+```text
 GET /api/ev/status
   Response: {
     "connected": true,
@@ -211,11 +217,11 @@ GET /api/ev/status
     "max_rate": 32,
     "actual_rate": 16.2
   }
-```
+```text
 
 #### Error Simulation
 
-```
+```text
 POST /api/errors/trigger
   Body: {"error": "gfci"}
 POST /api/errors/clear
@@ -228,7 +234,7 @@ POST /api/errors/status
       "stuck_relay": 0
     }
   }
-```
+```text
 
 ### WebSocket Interface
 
@@ -265,7 +271,7 @@ WebSocket endpoint: `ws://localhost:8080/ws`
     "timestamp": "2024-01-15T14:30:00Z"
   }
 }
-```
+```text
 
 ## Web UI
 
@@ -344,7 +350,7 @@ Configuration file: `config.json`
     "realistic_charge_curve": true
   }
 }
-```
+```text
 
 ## Testing
 

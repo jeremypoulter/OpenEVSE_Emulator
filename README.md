@@ -1,6 +1,10 @@
 # OpenEVSE Emulator
 
-A Python-based software emulator for the [OpenEVSE](https://github.com/OpenEVSE/open_evse) electric vehicle charging station firmware. This emulator simulates both the EVSE (charging station) and a connected EV, enabling WiFi firmware developers to test and develop without requiring physical hardware.
+A Python-based software emulator for the
+[OpenEVSE](https://github.com/OpenEVSE/open_evse) electric vehicle charging
+station firmware. This emulator simulates both the EVSE (charging station)
+and a connected EV, enabling WiFi firmware developers to test and develop
+without requiring physical hardware.
 
 ## Features
 
@@ -26,17 +30,20 @@ A Python-based software emulator for the [OpenEVSE](https://github.com/OpenEVSE/
 #### Option 1: Local Installation
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/jeremypoulter/OpenEVSE_Emulator.git
 cd OpenEVSE_Emulator
 ```
 
-2. Install dependencies:
+1. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the emulator:
+1. Run the emulator:
+
 ```bash
 python src/main.py
 ```
@@ -44,12 +51,14 @@ python src/main.py
 #### Option 2: Docker
 
 1. Build and run using Docker:
+
 ```bash
 docker build -t openevse-emulator .
 docker run -p 8080:8080 -p 8023:8023 openevse-emulator
 ```
 
-2. Or use Docker Compose:
+1. Or use Docker Compose:
+
 ```bash
 docker-compose up
 ```
@@ -62,6 +71,7 @@ docker-compose up
 4. The development environment will be automatically configured
 
 The emulator will start with:
+
 - Web UI accessible at: http://localhost:8080
 - API documentation at: http://localhost:8080/api/docs
 - WebSocket endpoint at: ws://localhost:8080/ws
@@ -81,7 +91,9 @@ Open your browser and navigate to `http://localhost:8080` to access the control 
 
 ### API Documentation
 
-Interactive API documentation is available at `http://localhost:8080/api/docs` using Swagger UI. The OpenAPI 3.0 specification can be accessed at `http://localhost:8080/api/openapi.yaml`.
+Interactive API documentation is available at `http://localhost:8080/api/docs`
+using Swagger UI. The OpenAPI 3.0 specification can be accessed at
+`http://localhost:8080/api/openapi.yaml`.
 
 ### REST API
 
@@ -166,7 +178,8 @@ Edit `config.json` to customize emulator settings:
 }
 ```
 
-**Note for Docker**: When running in Docker, use `"mode": "tcp"` for the serial port to enable network-based serial communication.
+**Note for Docker**: When running in Docker, use `"mode": "tcp"` for the
+serial port to enable network-based serial communication.
 
 ## Docker Deployment
 
@@ -179,11 +192,13 @@ docker build -t openevse-emulator .
 ### Running with Docker
 
 Basic run:
+
 ```bash
 docker run -p 8080:8080 -p 8023:8023 openevse-emulator
 ```
 
 With custom configuration:
+
 ```bash
 docker run -p 8080:8080 -p 8023:8023 \
   -v $(pwd)/config.json:/app/config.json:ro \
@@ -209,6 +224,7 @@ docker-compose down
 ### VSCode Devcontainer
 
 The devcontainer provides a fully configured development environment with:
+
 - Python 3.11
 - All dependencies pre-installed
 - VSCode extensions for Python, YAML, and OpenAPI
@@ -216,6 +232,7 @@ The devcontainer provides a fully configured development environment with:
 - Port forwarding for web UI and API
 
 To use:
+
 1. Install the "Remote - Containers" extension in VSCode
 2. Open the project folder
 3. Click "Reopen in Container" in the notification
@@ -228,7 +245,7 @@ The emulator can be run inside the container using the integrated terminal.
 ### Query Commands
 
 | Command | Description | Example Response |
-|---------|-------------|------------------|
+| --------- | ------------- | ------------------ |
 | `$GS` | Get EVSE state | `$OK 3 1234` (state=3, elapsed=1234s) |
 | `$GG` | Get current/voltage | `$OK 16000 240000 3 0` |
 | `$GP` | Get temperature | `$OK 250 260 0 0` (25.0°C, 26.0°C) |
@@ -240,7 +257,7 @@ The emulator can be run inside the container using the integrated terminal.
 ### Control Commands
 
 | Command | Description | Example |
-|---------|-------------|---------|
+| --------- | ------------- | --------- |
 | `$SC <amps>` | Set current capacity | `$SC 16` (set to 16A) |
 | `$SL <level>` | Set service level | `$SL 2` (L2) |
 | `$FE` | Enable charging | `$FE` |
@@ -251,7 +268,7 @@ See [SPEC.md](SPEC.md) for complete RAPI protocol documentation.
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │              Web UI (HTML/CSS/JS)                    │
 └──────────────────────┬──────────────────────────────┘
@@ -280,7 +297,7 @@ See [SPEC.md](SPEC.md) for complete RAPI protocol documentation.
 
 ### Project Structure
 
-```
+```text
 OpenEVSE_Emulator/
 ├── src/
 │   ├── emulator/
@@ -325,6 +342,7 @@ pytest tests/test_rapi.py
 To test the emulator with actual OpenEVSE WiFi firmware:
 
 1. Start the emulator with TCP mode:
+
    ```json
    "serial": {
      "mode": "tcp",
@@ -352,6 +370,7 @@ To test the emulator with actual OpenEVSE WiFi firmware:
 ### Serial Port Not Available
 
 **PTY mode**: Requires Unix-like OS (Linux/macOS). On Windows, use TCP mode:
+
 ```json
 "serial": {"mode": "tcp", "tcp_port": 8023}
 ```
@@ -371,8 +390,11 @@ To test the emulator with actual OpenEVSE WiFi firmware:
 
 ## Security Considerations
 
-- **Network Binding**: By default, the web server binds to `0.0.0.0` (all interfaces) for easy access from other machines on your network. For localhost-only access, change `web.host` to `127.0.0.1` in `config.json`.
-- **No Authentication**: The emulator does not include authentication. Do not expose it to untrusted networks.
+- **Network Binding**: By default, the web server binds to `0.0.0.0` (all
+  interfaces) for easy access from other machines on your network. For
+  localhost-only access, change `web.host` to `127.0.0.1` in `config.json`.
+- **No Authentication**: The emulator does not include authentication. Do not
+  expose it to untrusted networks.
 - **Development Use**: This emulator is intended for development and testing purposes only.
 
 ## Documentation
@@ -393,8 +415,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/jeremypoulter/OpenEVSE_Emulator/issues)
-- **Discussions**: Ask questions in [GitHub Discussions](https://github.com/jeremypoulter/OpenEVSE_Emulator/discussions)
+- **Issues**: Report bugs or request features via
+  [GitHub Issues](https://github.com/jeremypoulter/OpenEVSE_Emulator/issues)
+- **Discussions**: Ask questions in
+  [GitHub Discussions](https://github.com/jeremypoulter/OpenEVSE_Emulator/discussions)
 
 ## Roadmap
 

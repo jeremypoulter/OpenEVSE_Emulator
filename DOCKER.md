@@ -56,10 +56,12 @@ docker run -p 8080:8080 -p 8023:8023 \
 ### Networking
 
 The emulator exposes two ports:
+
 - **8080**: Web UI and REST API
 - **8023**: TCP serial port (for RAPI protocol when using TCP mode)
 
 To use the TCP serial port, ensure your `config.json` has:
+
 ```json
 {
   "serial": {
@@ -81,7 +83,9 @@ The Docker Compose configuration includes a health check that polls the `/api/st
 
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
 2. Install [Visual Studio Code](https://code.visualstudio.com/)
-3. Install the [Remote - Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
+3. Install the [Remote - Containers][remote-containers] extension
+
+[remote-containers]: https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers
 
 ### Getting Started
 
@@ -126,6 +130,7 @@ flake8 src/ tests/
 ### Customization
 
 Edit `.devcontainer/devcontainer.json` to:
+
 - Add more VSCode extensions
 - Change Python settings
 - Add additional port forwards
@@ -166,10 +171,12 @@ CMD ["python", "src/main.py"]
 ### Security
 
 - The container runs as root by default. For production, create a non-root user:
+
   ```dockerfile
   RUN useradd -m -u 1000 emulator
   USER emulator
   ```
+
 - Keep the base image updated: `docker pull python:3.11-slim`
 - Scan for vulnerabilities: `docker scan openevse-emulator`
 
@@ -196,6 +203,7 @@ services:
 ### Container Won't Start
 
 Check logs:
+
 ```bash
 docker logs openevse-emulator
 ```
@@ -203,6 +211,7 @@ docker logs openevse-emulator
 ### Port Already in Use
 
 Change the host port:
+
 ```bash
 docker run -p 8081:8080 -p 8024:8023 openevse-emulator
 ```
@@ -210,6 +219,7 @@ docker run -p 8081:8080 -p 8024:8023 openevse-emulator
 ### Permission Denied (PTY Mode)
 
 PTY mode requires host access. Use TCP mode in Docker:
+
 ```json
 {
   "serial": {
