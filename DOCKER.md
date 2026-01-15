@@ -98,7 +98,7 @@ The Docker Compose configuration includes a health check that polls the `/api/st
 
 The devcontainer provides:
 
-- **Python 3.11** with all dependencies pre-installed
+- **Python 3.13** with all dependencies pre-installed
 - **VSCode Extensions**:
   - Python language support
   - Pylance for type checking
@@ -151,12 +151,12 @@ The devcontainer is configured for Python debugging:
 For production, consider using a multi-stage build to reduce image size:
 
 ```dockerfile
-FROM python:3.11-slim as builder
+FROM python:3.13-slim as builder
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 WORKDIR /app
 COPY --from=builder /root/.local /root/.local
 COPY src/ ./src/
