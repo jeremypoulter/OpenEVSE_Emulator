@@ -9,6 +9,11 @@ import threading
 import time
 from typing import Optional
 
+# Charging curve constants
+TAPER_START_SOC = 80.0  # SoC percentage where charging starts to taper
+TAPER_RANGE = 20.0  # SoC range for tapering (80-100%)
+MAX_TAPER_FACTOR = 0.5  # Maximum power reduction during taper (50%)
+
 
 class EVSimulator:
     """Simulates an electric vehicle."""
@@ -136,8 +141,8 @@ class EVSimulator:
             actual_power_kw = min(offered_power_kw, self.max_charge_rate_kw)
             
             # Apply charging curve (taper at high SoC)
-            if self._soc > 80.0:
-                taper_factor = 1.0 - ((self._soc - 80.0) / 20.0) * 0.5
+            if self._soc > TAPER_START_SOC:
+                taper_factor = 1.0 - ((self._soc - TAPER_START_SOC) / TAPER_RANGE) * MAX_TAPER_FACTOR
                 actual_power_kw *= taper_factor
             
             self._actual_charge_rate_kw = actual_power_kw

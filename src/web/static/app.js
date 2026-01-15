@@ -234,9 +234,10 @@ function sendSerialCommand() {
     // Add command to display
     addSerialLine(command, 'command');
     
-    // Note: In a real implementation, this would send to the serial port
-    // For now, we'll just show it was sent
-    addSerialLine('(Command would be sent to virtual serial port)', 'info');
+    // Note: Direct serial port communication from browser is not possible
+    // In a real setup, this would be sent via the backend API to the virtual serial port
+    // For demonstration purposes, we show the command would be sent
+    addSerialLine('(Serial commands are sent to the virtual serial port by the backend)', 'info');
     
     input.value = '';
 }

@@ -9,6 +9,10 @@ import time
 from typing import Optional, Callable
 from enum import IntEnum
 
+# Temperature thresholds (in 0.1°C units)
+OVER_TEMP_THRESHOLD = 650  # 65.0°C
+AMBIENT_TEMP = 200  # 20.0°C
+
 
 class EVSEState(IntEnum):
     """EVSE states according to SAE J1772."""
@@ -259,16 +263,16 @@ class EVSEStateMachine:
                 self._session_energy_wh += energy_wh
                 
                 # Simulate temperature increase during charging
-                self._temperature_ds = min(650, self._temperature_ds + int(delta_time_sec * 0.5))
-                self._temperature_mcp = min(650, self._temperature_mcp + int(delta_time_sec * 0.5))
+                self._temperature_ds = min(OVER_TEMP_THRESHOLD, self._temperature_ds + int(delta_time_sec * 0.5))
+                self._temperature_mcp = min(OVER_TEMP_THRESHOLD, self._temperature_mcp + int(delta_time_sec * 0.5))
                 
                 # Check for over-temperature
-                if self._temperature_ds > 650 or self._temperature_mcp > 650:
+                if self._temperature_ds > OVER_TEMP_THRESHOLD or self._temperature_mcp > OVER_TEMP_THRESHOLD:
                     self._trigger_error_internal(ErrorFlags.OVER_TEMPERATURE)
             else:
                 # Cool down when not charging
-                self._temperature_ds = max(200, self._temperature_ds - int(delta_time_sec * 2.0))
-                self._temperature_mcp = max(200, self._temperature_mcp - int(delta_time_sec * 2.0))
+                self._temperature_ds = max(AMBIENT_TEMP, self._temperature_ds - int(delta_time_sec * 2.0))
+                self._temperature_mcp = max(AMBIENT_TEMP, self._temperature_mcp - int(delta_time_sec * 2.0))
     
     def get_status(self) -> dict:
         """
