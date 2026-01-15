@@ -167,30 +167,39 @@ class EVSEStateMachine:
     def trigger_error(self, error_flag: ErrorFlags):
         """Trigger an error condition."""
         with self._lock:
-            self._error_flags |= error_flag
-            
-            # Increment counters
-            if error_flag == ErrorFlags.GFCI_TRIP:
-                self._gfci_count += 1
-            elif error_flag == ErrorFlags.NO_GROUND:
-                self._no_ground_count += 1
-            elif error_flag == ErrorFlags.STUCK_RELAY:
-                self._stuck_relay_count += 1
-            
-            # Stop charging on error
-            self._actual_current_amps = 0.0
-            
-            # Notify state change
-            if self._state_change_callback:
-                self._state_change_callback(EVSEState.STATE_ERROR)
+            self._trigger_error_internal(error_flag)
+    
+    def _trigger_error_internal(self, error_flag: ErrorFlags):
+        """Internal method to trigger error (assumes lock is held)."""
+        self._error_flags |= error_flag
+        
+        # Increment counters
+        if error_flag == ErrorFlags.GFCI_TRIP:
+            self._gfci_count += 1
+        elif error_flag == ErrorFlags.NO_GROUND:
+            self._no_ground_count += 1
+        elif error_flag == ErrorFlags.STUCK_RELAY:
+            self._stuck_relay_count += 1
+        
+        # Stop charging on error
+        self._actual_current_amps = 0.0
+        
+        # Notify state change
+        if self._state_change_callback:
+            self._state_change_callback(EVSEState.STATE_ERROR)
     
     def clear_errors(self):
         """Clear all error flags."""
         with self._lock:
-            old_state = self.state
+            # Check if we were in error state before clearing
+            was_error = (self._error_flags != 0)
             self._error_flags = 0
-            if old_state == EVSEState.STATE_ERROR and self._state_change_callback:
-                self._state_change_callback(self._state)
+            if was_error and self._state_change_callback:
+                # Determine new state after clearing errors
+                new_state = self._state
+                if self._sleep_mode:
+                    new_state = EVSEState.STATE_SLEEP
+                self._state_change_callback(new_state)
     
     def update_state(self, ev_pilot_state: str):
         """
@@ -225,7 +234,7 @@ class EVSEStateMachine:
             elif ev_pilot_state == 'D':
                 self._state = EVSEState.STATE_D_VENT_REQUIRED
                 self._actual_current_amps = 0.0
-                self.trigger_error(ErrorFlags.DIODE_CHECK_FAILED)
+                self._trigger_error_internal(ErrorFlags.DIODE_CHECK_FAILED)
             
             # Notify state change
             if old_state != self._state and self._state_change_callback:
@@ -255,7 +264,7 @@ class EVSEStateMachine:
                 
                 # Check for over-temperature
                 if self._temperature_ds > 650 or self._temperature_mcp > 650:
-                    self.trigger_error(ErrorFlags.OVER_TEMPERATURE)
+                    self._trigger_error_internal(ErrorFlags.OVER_TEMPERATURE)
             else:
                 # Cool down when not charging
                 self._temperature_ds = max(200, self._temperature_ds - int(delta_time_sec * 2.0))
@@ -273,9 +282,16 @@ class EVSEStateMachine:
             if self._session_start_time > 0:
                 elapsed_time = int(time.time() - self._session_start_time)
             
+            # Determine current state (without calling property which would deadlock)
+            current_state = self._state
+            if self._error_flags != 0:
+                current_state = EVSEState.STATE_ERROR
+            elif self._sleep_mode:
+                current_state = EVSEState.STATE_SLEEP
+            
             return {
-                'state': int(self.state),
-                'state_name': self.state.name,
+                'state': int(current_state),
+                'state_name': current_state.name,
                 'current_capacity': self._current_capacity_amps,
                 'actual_current': round(self._actual_current_amps, 1),
                 'voltage': self._voltage_mv,
