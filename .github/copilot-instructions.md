@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-This is a Python-based emulator for the OpenEVSE electric vehicle charging station firmware. It simulates both the EVSE (charging station) and a connected EV to help developers test WiFi firmware without physical hardware.
+This is a Python-based emulator for the OpenEVSE electric vehicle charging station firmware.
+It simulates both the EVSE (charging station) and a connected EV to help developers test
+WiFi firmware without physical hardware.
 
 ## Architecture
 
@@ -15,6 +17,7 @@ This is a Python-based emulator for the OpenEVSE electric vehicle charging stati
 ## Code Style and Conventions
 
 ### Python Style
+
 - Follow PEP 8 style guide
 - Use type hints for function parameters and return values
 - Maximum line length: 100 characters
@@ -22,13 +25,15 @@ This is a Python-based emulator for the OpenEVSE electric vehicle charging stati
 - Prefer f-strings for string formatting
 
 ### Naming Conventions
+
 - Classes: PascalCase (e.g., `EVSEStateMachine`)
 - Functions/methods: snake_case (e.g., `handle_command`)
 - Constants: UPPER_SNAKE_CASE (e.g., `STATE_READY`)
 - Private methods: prefix with underscore (e.g., `_update_state`)
 
 ### Project Structure
-```
+
+```text
 /
 ├── src/
 │   ├── emulator/
@@ -60,6 +65,7 @@ This is a Python-based emulator for the OpenEVSE electric vehicle charging stati
 ## Key Technical Details
 
 ### RAPI Protocol
+
 - ASCII-based command/response protocol
 - Commands: `$<CMD> [params]\r` (e.g., `$GS\r`)
 - Success response: `$OK [data]\r`
@@ -67,6 +73,7 @@ This is a Python-based emulator for the OpenEVSE electric vehicle charging stati
 - Common commands: GS (get state), GG (get current), SC (set current), FE (enable)
 
 ### EVSE States
+
 - State A (0x01): Ready, not connected
 - State B (0x02): Connected, not charging  
 - State C (0x03): Charging
@@ -75,7 +82,9 @@ This is a Python-based emulator for the OpenEVSE electric vehicle charging stati
 - State 0xFD: Sleep mode
 
 ### Error Conditions
+
 Simulate these via API/UI:
+
 - GFCI trip (0x01)
 - Stuck relay (0x02)
 - No ground (0x04)
@@ -86,24 +95,28 @@ Simulate these via API/UI:
 ## Development Guidelines
 
 ### When Adding Features
+
 1. Update SPEC.md if the architecture or API changes
 2. Add corresponding unit tests
 3. Update README.md if user-facing changes
 4. Maintain backward compatibility with RAPI protocol
 
 ### Error Handling
+
 - Catch exceptions in RAPI command handlers
 - Return `$NK\r` for invalid commands
 - Log errors for debugging but keep protocol responses clean
 - Validate all input parameters
 
 ### Threading Considerations
+
 - RAPI handler runs in separate thread
 - Use locks when accessing shared state (EVSE/EV state)
 - WebSocket updates should be non-blocking
 - Simulation loop runs independently
 
 ### Testing Best Practices
+
 - Test each RAPI command with valid and invalid inputs
 - Verify state transitions follow J1772 specification
 - Mock serial port in unit tests
@@ -112,18 +125,21 @@ Simulate these via API/UI:
 ## Common Tasks
 
 ### Adding a New RAPI Command
+
 1. Add command handler in `rapi.py`
 2. Update command dispatch table
 3. Add unit test in `test_rapi.py`
 4. Document in SPEC.md if not already documented
 
 ### Adding a New API Endpoint
+
 1. Add route in `web/api.py`
 2. Update OpenAPI/Swagger docs if present
 3. Add test in `test_api.py`
 4. Update Web UI if needed
 
 ### Adding Error Simulation
+
 1. Define error code constant
 2. Add error state to EVSE class
 3. Add API endpoint to trigger
@@ -133,30 +149,35 @@ Simulate these via API/UI:
 ## Dependencies
 
 ### Required Libraries
+
 - `Flask`: Web framework
 - `Flask-SocketIO`: WebSocket support
 - `pyserial`: Serial port emulation
 - `pytest`: Testing framework
 
 ### Optional Libraries
+
 - `eventlet` or `gevent`: Async support for SocketIO
 - `python-socketio`: WebSocket client (for testing)
 
 ## Debugging Tips
 
 ### RAPI Protocol Issues
+
 - Enable echo mode: `$SE 1\r`
 - Check command format (must end with \r)
 - Verify checksum if using advanced mode
 - Use serial monitor in web UI
 
 ### State Machine Issues
+
 - Check state transition logs
 - Verify conditions for transitions are met
 - Test with manual state changes via API
 - Check for race conditions with locks
 
 ### Web UI Not Updating
+
 - Check WebSocket connection in browser console
 - Verify Flask-SocketIO is emitting events
 - Check CORS settings if accessing from different origin
