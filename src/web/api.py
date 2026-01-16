@@ -70,8 +70,6 @@ class WebAPI:
         @self.app.route("/api/openapi.yaml", methods=["GET"])
         def get_openapi_spec():
             """Serve the OpenAPI specification file."""
-            import os
-
             root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
             return send_from_directory(root_dir, "openapi.yaml", mimetype="text/yaml")
 

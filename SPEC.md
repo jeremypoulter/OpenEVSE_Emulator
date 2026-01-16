@@ -52,7 +52,7 @@ charging station without requiring physical hardware.
 │  Virtual Serial Port      │
 │  (pty or TCP socket)      │
 └───────────────────────────┘
-```text
+```
 
 ## RAPI Protocol Implementation
 
@@ -90,7 +90,7 @@ The RAPI protocol uses ASCII commands with the following format:
 | --------- | ------------- | ---------- |
 | `$SC <amps>` | Set current capacity (6-80A) | `$OK` or `$NK` |
 | `$SL <level>` | Set service level (1=L1, 2=L2, A=Auto) | `$OK` or `$NK` |
-| `$SE <0\ | 1>` | Set echo mode | `$OK` |
+| `$SE <0\|1>` | Set echo mode | `$OK` |
 | `$ST <minutes>` | Set time limit | `$OK` or `$NK` |
 | `$SH <kwh>` | Set kWh limit | `$OK` or `$NK` |
 | `$FE` | Enable charging (sleep → active) | `$OK` or `$NK` |
@@ -169,7 +169,7 @@ POST /api/evse/current
   Body: {"amps": 16}
 POST /api/evse/service_level
   Body: {"level": "L2"}
-```text
+```
 
 #### EVSE Status
 
@@ -191,7 +191,7 @@ GET /api/evse/version
     "firmware": "8.2.1",
     "protocol": "5.0.1"
   }
-```text
+```
 
 #### EV Control
 
@@ -204,7 +204,7 @@ POST /api/ev/soc
   Body: {"soc": 50}
 POST /api/ev/max_rate
   Body: {"amps": 32}
-```text
+```
 
 #### EV Status
 
@@ -217,7 +217,7 @@ GET /api/ev/status
     "max_rate": 32,
     "actual_rate": 16.2
   }
-```text
+```
 
 #### Error Simulation
 
@@ -234,7 +234,7 @@ POST /api/errors/status
       "stuck_relay": 0
     }
   }
-```text
+```
 
 ### WebSocket Interface
 
@@ -271,7 +271,7 @@ WebSocket endpoint: `ws://localhost:8080/ws`
     "timestamp": "2024-01-15T14:30:00Z"
   }
 }
-```text
+```
 
 ## Web UI
 
@@ -350,7 +350,7 @@ Configuration file: `config.json`
     "realistic_charge_curve": true
   }
 }
-```text
+```
 
 ## Testing
 
