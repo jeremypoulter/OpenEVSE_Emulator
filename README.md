@@ -225,7 +225,7 @@ docker-compose down
 
 The devcontainer provides a fully configured development environment with:
 
-- Python 3.11
+- Python 3.13
 - All dependencies pre-installed
 - VSCode extensions for Python, YAML, and OpenAPI
 - Automatic linting and formatting
