@@ -15,65 +15,61 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from emulator.evse import EVSEStateMachine, ErrorFlags
-from emulator.ev import EVSimulator
-from emulator.rapi import RAPIHandler
-from emulator.serial_port import VirtualSerialPort
-from web.api import WebAPI
+from emulator.evse import EVSEStateMachine  # noqa: E402
+from emulator.ev import EVSimulator  # noqa: E402
+from emulator.rapi import RAPIHandler  # noqa: E402
+from emulator.serial_port import VirtualSerialPort  # noqa: E402
+from web.api import WebAPI  # noqa: E402
 
 
 class OpenEVSEEmulator:
     """Main emulator orchestrator."""
-    
+
     def __init__(self, config_path: str = "config.json"):
         """
         Initialize the emulator.
-        
+
         Args:
             config_path: Path to configuration file
         """
         self.config = self._load_config(config_path)
-        
+
         # Create components
-        evse_config = self.config['evse']
+        evse_config = self.config["evse"]
         self.evse = EVSEStateMachine(
-            firmware_version=evse_config['firmware_version'],
-            protocol_version=evse_config['protocol_version']
+            firmware_version=evse_config["firmware_version"],
+            protocol_version=evse_config["protocol_version"],
         )
-        self.evse.current_capacity_amps = evse_config['default_current']
-        self.evse.service_level = evse_config['service_level']
-        
-        ev_config = self.config['ev']
+        self.evse.current_capacity_amps = evse_config["default_current"]
+        self.evse.service_level = evse_config["service_level"]
+
+        ev_config = self.config["ev"]
         self.ev = EVSimulator(
-            battery_capacity_kwh=ev_config['battery_capacity_kwh'],
-            max_charge_rate_kw=ev_config['max_charge_rate_kw']
+            battery_capacity_kwh=ev_config["battery_capacity_kwh"],
+            max_charge_rate_kw=ev_config["max_charge_rate_kw"],
         )
-        
+
         self.rapi = RAPIHandler(self.evse, self.ev)
-        
-        serial_config = self.config['serial']
+
+        serial_config = self.config["serial"]
         self.serial_port = VirtualSerialPort(
-            mode=serial_config['mode'],
-            tcp_port=serial_config['tcp_port']
+            mode=serial_config["mode"], tcp_port=serial_config["tcp_port"]
         )
-        
-        web_config = self.config['web']
+
+        web_config = self.config["web"]
         self.web_api = WebAPI(
-            self.evse,
-            self.ev,
-            host=web_config['host'],
-            port=web_config['port']
+            self.evse, self.ev, host=web_config["host"], port=web_config["port"]
         )
-        
+
         # Simulation state
         self.running = False
         self.simulation_thread = None
         self.last_update_time = time.time()
-    
+
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from JSON file."""
         try:
-            with open(config_path, 'r') as f:
+            with open(config_path, "r") as f:
                 return json.load(f)
         except FileNotFoundError:
             print(f"Warning: Config file {config_path} not found, using defaults")
@@ -81,126 +77,118 @@ class OpenEVSEEmulator:
         except json.JSONDecodeError as e:
             print(f"Error parsing config file: {e}")
             sys.exit(1)
-    
+
     def _default_config(self) -> dict:
         """Return default configuration."""
         return {
-            "serial": {
-                "mode": "pty",
-                "tcp_port": 8023,
-                "baudrate": 115200
-            },
+            "serial": {"mode": "pty", "tcp_port": 8023, "baudrate": 115200},
             "evse": {
                 "firmware_version": "8.2.1",
                 "protocol_version": "5.0.1",
                 "default_current": 32,
                 "service_level": "L2",
-                "gfci_self_test": True
+                "gfci_self_test": True,
             },
-            "ev": {
-                "battery_capacity_kwh": 75,
-                "max_charge_rate_kw": 7.2
-            },
-            "web": {
-                "host": "0.0.0.0",
-                "port": 8080
-            },
+            "ev": {"battery_capacity_kwh": 75, "max_charge_rate_kw": 7.2},
+            "web": {"host": "0.0.0.0", "port": 8080},
             "simulation": {
                 "update_interval_ms": 1000,
                 "temperature_simulation": True,
-                "realistic_charge_curve": True
-            }
+                "realistic_charge_curve": True,
+            },
         }
-    
+
     def start(self):
         """Start the emulator."""
         print("=" * 60)
         print("OpenEVSE Emulator v1.0.0")
         print("=" * 60)
-        
+
         # Start virtual serial port
         print("\nStarting virtual serial port...")
         if not self.serial_port.start(self._handle_serial_data):
             print("Failed to start serial port")
             return False
-        
+
         print(f"Serial port: {self.serial_port.get_port_info()}")
-        
+
         # Start simulation loop
         print("\nStarting simulation loop...")
         self.running = True
-        self.simulation_thread = threading.Thread(target=self._simulation_loop, daemon=True)
+        self.simulation_thread = threading.Thread(
+            target=self._simulation_loop, daemon=True
+        )
         self.simulation_thread.start()
-        
+
         # Start web server (blocking)
         print("\nStarting web server...")
         print(f"Web UI: http://localhost:{self.config['web']['port']}")
         print("\n" + "=" * 60)
         print("Emulator is running. Press Ctrl+C to stop.")
         print("=" * 60 + "\n")
-        
+
         try:
             self.web_api.run()
         except KeyboardInterrupt:
             print("\nShutting down...")
             self.stop()
-    
+
     def stop(self):
         """Stop the emulator."""
         self.running = False
-        
+
         if self.simulation_thread:
             self.simulation_thread.join(timeout=2.0)
-        
+
         self.serial_port.stop()
         print("Emulator stopped.")
-    
+
     def _simulation_loop(self):
         """Main simulation loop."""
-        update_interval = self.config['simulation']['update_interval_ms'] / 1000.0
-        
+        update_interval = self.config["simulation"]["update_interval_ms"] / 1000.0
+
         while self.running:
             current_time = time.time()
             delta_time = current_time - self.last_update_time
             self.last_update_time = current_time
-            
+
             # Update EV pilot state and get what EVSE should see
             ev_pilot_state = self.ev.get_pilot_resistance()
-            
+
             # Update EVSE state based on EV
             self.evse.update_state(ev_pilot_state)
-            
+
             # Get EVSE output
             evse_status = self.evse.get_status()
-            offered_current = evse_status['current_capacity']
-            voltage = evse_status['voltage'] / 1000.0  # Convert to volts
-            
+            offered_current = evse_status["current_capacity"]
+            voltage = evse_status["voltage"] / 1000.0  # Convert to volts
+
             # Update EV charging based on EVSE offer
             self.ev.update_charging(offered_current, voltage, delta_time)
-            
+
             # Update EVSE charging metrics
             ev_status = self.ev.get_status()
-            self.evse.update_charging(ev_status['actual_charge_rate_kw'], delta_time)
-            
+            self.evse.update_charging(ev_status["actual_charge_rate_kw"], delta_time)
+
             # Sleep until next update
             time.sleep(update_interval)
-    
+
     def _handle_serial_data(self, data: str) -> str:
         """
         Handle data received on serial port.
-        
+
         Args:
             data: Received data string
-        
+
         Returns:
             Response string to send back
         """
         # Process RAPI command
         response = self.rapi.process_command(data)
-        
+
         # Log to console
         print(f"RAPI: {data.strip()} -> {response.strip()}")
-        
+
         return response
 
 
@@ -210,19 +198,19 @@ def main():
     config_path = "config.json"
     if len(sys.argv) > 1:
         config_path = sys.argv[1]
-    
+
     # Create and start emulator
     emulator = OpenEVSEEmulator(config_path)
-    
+
     # Handle Ctrl+C gracefully
     def signal_handler(sig, frame):
         print("\nReceived interrupt signal")
         emulator.stop()
         sys.exit(0)
-    
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     # Start emulator
     emulator.start()
 
