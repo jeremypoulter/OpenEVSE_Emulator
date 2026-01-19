@@ -59,14 +59,14 @@ def test_set_current(rapi):
     # Set to 16A
     response = rapi.process_command("$SC 16\r")
     assert "$OK" in response
-    
+
     # Verify it was set
     assert rapi.evse.current_capacity_amps == 16
-    
+
     # Try invalid value (too low)
     response = rapi.process_command("$SC 5\r")
     assert "$NK" in response
-    
+
     # Try invalid value (too high)
     response = rapi.process_command("$SC 100\r")
     assert "$NK" in response
@@ -78,12 +78,12 @@ def test_set_service_level(rapi):
     response = rapi.process_command("$SL 1\r")
     assert "$OK" in response
     assert rapi.evse.service_level == "L1"
-    
+
     # Set to L2
     response = rapi.process_command("$SL 2\r")
     assert "$OK" in response
     assert rapi.evse.service_level == "L2"
-    
+
     # Set to Auto
     response = rapi.process_command("$SL A\r")
     assert "$OK" in response
@@ -95,7 +95,7 @@ def test_enable_disable(rapi):
     # Disable
     response = rapi.process_command("$FD\r")
     assert "$OK" in response
-    
+
     # Enable
     response = rapi.process_command("$FE\r")
     assert "$OK" in response
@@ -113,11 +113,11 @@ def test_echo_mode(rapi):
     response = rapi.process_command("$SE 1\r")
     assert "$OK" in response
     assert rapi.evse.echo_enabled
-    
+
     # With echo enabled, command should be echoed
     response = rapi.process_command("$GS\r")
     assert "$GS" in response
-    
+
     # Disable echo
     response = rapi.process_command("$SE 0\r")
     assert "$OK" in response
@@ -135,7 +135,7 @@ def test_malformed_command(rapi):
     # Missing $
     response = rapi.process_command("GS\r")
     assert "$NK" in response
-    
+
     # Empty command
     response = rapi.process_command("$\r")
     assert "$NK" in response
@@ -146,11 +146,11 @@ def test_command_with_newline(rapi):
     # Just CR
     response = rapi.process_command("$GS\r")
     assert "$OK" in response
-    
+
     # Just LF
     response = rapi.process_command("$GS\n")
     assert "$OK" in response
-    
+
     # CRLF
     response = rapi.process_command("$GS\r\n")
     assert "$OK" in response
@@ -161,7 +161,7 @@ def test_case_insensitive(rapi):
     response1 = rapi.process_command("$GS\r")
     response2 = rapi.process_command("$gs\r")
     response3 = rapi.process_command("$Gs\r")
-    
+
     # All should work
     assert "$OK" in response1
     assert "$OK" in response2

@@ -177,7 +177,7 @@ CMD ["python", "src/main.py"]
   USER emulator
   ```
 
-- Keep the base image updated: `docker pull python:3.11-slim`
+- Keep the base image updated: `docker pull python:3.13-slim`
 - Scan for vulnerabilities: `docker scan openevse-emulator`
 
 ### Resource Limits
@@ -247,7 +247,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Build Docker image
         run: docker build -t openevse-emulator .
       - name: Test container
