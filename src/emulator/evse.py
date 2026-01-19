@@ -217,13 +217,16 @@ class EVSEStateMachine:
         new_state = None
         
         with self._lock:
-            if self._error_flags != 0 or self._sleep_mode:
+            if self._sleep_mode:
                 return
             
             old_state = self._state
+            old_error_flags = self._error_flags
             
             # Update state based on pilot
             if ev_pilot_state == 'A':
+                # EV disconnected - clear error state
+                self._error_flags = 0
                 self._state = EVSEState.STATE_A_NOT_CONNECTED
                 self._actual_current_amps = 0.0
                 if self._session_start_time > 0:
@@ -244,10 +247,11 @@ class EVSEStateMachine:
                 self._actual_current_amps = 0.0
                 self._trigger_error_internal(ErrorFlags.DIODE_CHECK_FAILED)
             
-            # Check if we need to notify (but don't call callback while holding lock)
-            if old_state != self._state and self._state_change_callback:
+            # Check if we need to notify - notify if state changed or error flags changed
+            state_changed = old_state != self._state or old_error_flags != self._error_flags
+            if state_changed and self._state_change_callback:
                 notify_callback = True
-                new_state = self._state
+                new_state = self._state if self._error_flags != 0 else self._state
         
         # Call callback outside of lock to avoid deadlock
         if notify_callback:

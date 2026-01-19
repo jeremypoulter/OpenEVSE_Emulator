@@ -19,6 +19,10 @@ def test_get_state(rapi):
     response = rapi.process_command("$GS\r")
     assert response.startswith("$OK")
     assert response.endswith("\r")
+    
+    # Should have 4 values: state, elapsed, pilotstate, vflags
+    parts = response.strip().split()
+    assert len(parts) == 5  # $OK + 4 values
 
 
 def test_get_version(rapi):

@@ -116,6 +116,24 @@ def test_error_prevents_enable():
     assert evse.enable() is True
 
 
+def test_disconnect_clears_error():
+    """Test that disconnecting EV clears error state."""
+    evse = EVSEStateMachine()
+
+    # Connect and trigger an error
+    evse.update_state("B")
+    evse.trigger_error(ErrorFlags.DIODE_CHECK_FAILED)
+    assert evse.state == EVSEState.STATE_ERROR
+    status = evse.get_status()
+    assert status["error_flags"] & ErrorFlags.DIODE_CHECK_FAILED
+
+    # Disconnect (State A) should clear error
+    evse.update_state("A")
+    assert evse.state == EVSEState.STATE_A_NOT_CONNECTED
+    status = evse.get_status()
+    assert status["error_flags"] == 0
+
+
 def test_charging_energy_tracking():
     """Test energy tracking during charging."""
     evse = EVSEStateMachine()

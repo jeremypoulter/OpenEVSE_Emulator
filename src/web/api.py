@@ -62,7 +62,7 @@ class WebAPI:
 
         # Create SocketIO instance
         self.socketio = SocketIO(
-            self.app, cors_allowed_origins="*", async_mode="eventlet"
+            self.app, cors_allowed_origins="*", async_mode="gevent"
         )
 
         # Register routes

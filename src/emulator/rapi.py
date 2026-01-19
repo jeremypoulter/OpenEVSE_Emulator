@@ -199,11 +199,26 @@ class RAPIHandler:
     # Query Commands
     
     def _cmd_get_state(self, params: list) -> str:
-        """$GS - Get EVSE state."""
+        """$GS - Get EVSE state.
+        
+        Response: $OK evsestate elapsed pilotstate vflags
+        evsestate(hex): EVSE state
+        elapsed(dec): elapsed charge time in seconds
+        pilotstate(hex): EV pilot state
+        vflags(hex): error flags
+        """
         status = self.evse.get_status()
-        state = status['state']
+        state = f"{status['state']:02X}"
         elapsed = status['session_time']
-        return f'{RAPI_OK_RESPONSE} {state} {elapsed}'
+        
+        # Get pilot state from EV
+        pilot_state = self.ev.get_pilot_resistance()
+        pilot_map = {'A': '01', 'B': '02', 'C': '03', 'D': '04'}
+        pilot_state_hex = pilot_map.get(pilot_state, '01')
+        
+        vflags = f"{status['error_flags']:02X}"
+        
+        return f'{RAPI_OK_RESPONSE} {state} {elapsed} {pilot_state_hex} {vflags}'
     
     def _cmd_get_current_voltage(self, params: list) -> str:
         """$GG - Get real-time current and voltage."""
@@ -410,11 +425,14 @@ class RAPIHandler:
         """
         status = self.evse.get_status()
         evse_state = f"{status['state']:02X}"
-        pilot_state = evse_state  # For now, pilot state matches EVSE state
+        pilot_state = self.ev.get_pilot_resistance()
+        # Convert pilot state letter to hex code for consistency
+        pilot_map = {'A': '01', 'B': '02', 'C': '03', 'D': '04'}
+        pilot_state_hex = pilot_map.get(pilot_state, '01')
         current = status['current_capacity']
         vflags = f"{status['error_flags']:02X}"
         
-        msg = f'$AT {evse_state} {pilot_state} {current} {vflags}'
+        msg = f'$AT {evse_state} {pilot_state_hex} {current} {vflags}'
         msg_with_checksum = self._append_checksum(msg) + RAPI_LINE_ENDING
         if self.async_callback:
             self.async_callback(msg_with_checksum)
