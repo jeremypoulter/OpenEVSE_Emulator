@@ -10,9 +10,11 @@ from flask_cors import CORS
 import os
 from typing import TYPE_CHECKING
 
+from emulator.evse import ErrorFlags
+
 if TYPE_CHECKING:
-    from ..emulator.evse import EVSEStateMachine, ErrorFlags
-    from ..emulator.ev import EVSimulator
+    from emulator.evse import EVSEStateMachine
+    from emulator.ev import EVSimulator
 
 
 class WebAPI:
@@ -486,8 +488,6 @@ ws.onmessage = (event) => {
             data = request.get_json()
             if not data or 'error' not in data:
                 return jsonify({'error': 'Missing error parameter'}), 400
-            
-            from ..emulator.evse import ErrorFlags
             
             error_map = {
                 'gfci': ErrorFlags.GFCI_TRIP,
