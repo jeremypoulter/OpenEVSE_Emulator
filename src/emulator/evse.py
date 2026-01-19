@@ -212,6 +212,10 @@ class EVSEStateMachine:
         Args:
             ev_pilot_state: 'A', 'B', 'C', or 'D' from EV simulator
         """
+        # Determine if we need to notify about a state change
+        notify_callback = False
+        new_state = None
+        
         with self._lock:
             if self._error_flags != 0 or self._sleep_mode:
                 return
@@ -240,9 +244,14 @@ class EVSEStateMachine:
                 self._actual_current_amps = 0.0
                 self._trigger_error_internal(ErrorFlags.DIODE_CHECK_FAILED)
             
-            # Notify state change
+            # Check if we need to notify (but don't call callback while holding lock)
             if old_state != self._state and self._state_change_callback:
-                self._state_change_callback(self._state)
+                notify_callback = True
+                new_state = self._state
+        
+        # Call callback outside of lock to avoid deadlock
+        if notify_callback:
+            self._state_change_callback(new_state)
     
     def update_charging(self, actual_charge_rate_kw: float, delta_time_sec: float):
         """

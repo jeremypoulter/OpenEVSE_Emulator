@@ -9,6 +9,7 @@ import pty
 import socket
 import threading
 import sys
+import termios
 from typing import Optional, Callable
 
 
@@ -65,6 +66,17 @@ class VirtualSerialPort:
         try:
             self.master_fd, self.slave_fd = pty.openpty()
             self.slave_name = os.ttyname(self.slave_fd)
+            
+            # Configure PTY to raw mode to prevent \r -> \n translation
+            # This ensures RAPI protocol line endings (\r) are preserved
+            try:
+                attrs = termios.tcgetattr(self.slave_fd)
+                attrs[0] &= ~(termios.ICRNL | termios.INLCR)  # No CR/NL translation on input
+                attrs[1] &= ~(termios.OCRNL | termios.ONLCR)  # No CR/NL translation on output
+                attrs[3] &= ~(termios.ECHO | termios.ICANON)  # No echo, no canonical mode
+                termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
+            except Exception as e:
+                print(f"Warning: Could not set PTY to raw mode: {e}")
             
             print(f"Virtual serial port created: {self.slave_name}")
             print(f"Connect using: screen {self.slave_name} 115200")
@@ -230,3 +242,23 @@ class VirtualSerialPort:
         elif self.mode == "tcp":
             return f"TCP: localhost:{self.tcp_port}"
         return "Not started"
+    
+    def write(self, data: str):
+        """
+        Write data to the serial port (for async messages).
+        
+        Args:
+            data: Data string to write
+        """
+        if not self.running:
+            return
+        
+        try:
+            data_bytes = data.encode('utf-8')
+            
+            if self.mode == "pty" and self.master_fd is not None:
+                os.write(self.master_fd, data_bytes)
+            elif self.mode == "tcp" and self.client_socket:
+                self.client_socket.send(data_bytes)
+        except Exception as e:
+            print(f"Error writing to serial port: {e}")

@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 RAPI_OK_RESPONSE = '$OK'
 RAPI_ERROR_RESPONSE = '$NK'
 RAPI_LINE_ENDING = '\r'
+RAPI_SOC = '$'  # Start of command
+RAPI_CHECKSUM_PREFIX = '^'  # Checksum prefix
 
 
 class RAPIHandler:
@@ -31,6 +33,7 @@ class RAPIHandler:
         """
         self.evse = evse
         self.ev = ev
+        self.async_callback = None  # Callback to send async messages
         
         # Command dispatch table
         self.commands = {
@@ -42,6 +45,8 @@ class RAPIHandler:
             'GC': self._cmd_get_current_capacity,
             'GE': self._cmd_get_settings,
             'GF': self._cmd_get_fault_counters,
+            'GA': self._cmd_get_ammeter_settings,
+            'GI': self._cmd_get_mcu_id,
             'GT': self._cmd_get_time_limit,
             'GH': self._cmd_get_kwh_limit,
             'SC': self._cmd_set_current,
@@ -49,37 +54,124 @@ class RAPIHandler:
             'SE': self._cmd_set_echo,
             'ST': self._cmd_set_time_limit,
             'SH': self._cmd_set_kwh_limit,
+            'SY': self._cmd_heartbeat_supervision,
             'FE': self._cmd_enable,
             'FD': self._cmd_disable,
             'FR': self._cmd_reset,
             'F1': self._cmd_enable_gfci_test,
             'F0': self._cmd_disable_gfci_test,
         }
+        
+        # Ammeter calibration settings
+        self.ammeter_scale = 1.0
+        self.ammeter_offset = 0
+        
+        # MCU ID (simulated)
+        self.mcu_id = "OpenEVSE03AB12CD"
+        
+        # Heartbeat supervision settings
+        self.heartbeat_interval = 0
+        self.heartbeat_current_limit = 0
+        self.heartbeat_missed = False
+    
+    @staticmethod
+    def _calculate_checksum(data: str) -> str:
+        """
+        Calculate XOR checksum for RAPI protocol.
+        
+        Computes XOR of all characters in the data string and returns
+        as a 2-digit hexadecimal string prefixed with '^'.
+        
+        Args:
+            data: String to calculate checksum for
+        
+        Returns:
+            Checksum string (e.g., "^42")
+        """
+        checksum = 0
+        for char in data:
+            checksum ^= ord(char)
+        return f'{RAPI_CHECKSUM_PREFIX}{checksum:02X}'
+    
+    @staticmethod
+    def _append_checksum(data: str) -> str:
+        """
+        Append checksum to RAPI response.
+        
+        Args:
+            data: RAPI response string (without checksum)
+        
+        Returns:
+            RAPI response with checksum appended
+        """
+        checksum = RAPIHandler._calculate_checksum(data)
+        return data + checksum
+    
+    @staticmethod
+    def _verify_checksum(data: str) -> bool:
+        """
+        Verify checksum in RAPI command.
+        
+        Args:
+            data: RAPI command string with checksum
+        
+        Returns:
+            True if checksum is valid, False otherwise
+        """
+        # Find checksum marker
+        checksum_pos = data.rfind(RAPI_CHECKSUM_PREFIX)
+        if checksum_pos < 0:
+            # No checksum provided, consider it valid
+            return True
+        
+        try:
+            # Extract data before checksum and the checksum value
+            data_part = data[:checksum_pos]
+            checksum_part = data[checksum_pos + 1:checksum_pos + 3]
+            
+            # Calculate what checksum should be
+            calculated = RAPIHandler._calculate_checksum(data_part)
+            expected = f'{RAPI_CHECKSUM_PREFIX}{checksum_part}'
+            
+            return calculated == expected
+        except (IndexError, ValueError):
+            return False
+
     
     def process_command(self, command: str) -> str:
         """
         Process a RAPI command and return response.
         
         Args:
-            command: RAPI command string (e.g., "$GS" or "$SC 16")
+            command: RAPI command string (e.g., "$GS" or "$SC 16" or "$GS^AB")
         
         Returns:
-            RAPI response string (e.g., "$OK 3 1234" or "$NK")
+            RAPI response string with checksum (e.g., "$OK 3 1234^42\r")
         """
         # Strip whitespace and line endings
         command = command.strip()
         
         # Commands should start with $
         if not command.startswith('$'):
-            return RAPI_ERROR_RESPONSE + RAPI_LINE_ENDING
+            response = RAPI_ERROR_RESPONSE
+            return self._append_checksum(response) + RAPI_LINE_ENDING
         
-        # Remove $ prefix
+        # Verify checksum if present
+        if not self._verify_checksum(command):
+            response = RAPI_ERROR_RESPONSE
+            return self._append_checksum(response) + RAPI_LINE_ENDING
+        
+        # Remove $ prefix and checksum (if present)
         command = command[1:]
+        checksum_pos = command.rfind(RAPI_CHECKSUM_PREFIX)
+        if checksum_pos >= 0:
+            command = command[:checksum_pos]
         
         # Split command and parameters
         parts = command.split()
         if not parts:
-            return RAPI_ERROR_RESPONSE + RAPI_LINE_ENDING
+            response = RAPI_ERROR_RESPONSE
+            return self._append_checksum(response) + RAPI_LINE_ENDING
         
         cmd_code = parts[0].upper()
         params = parts[1:] if len(parts) > 1 else []
@@ -87,19 +179,22 @@ class RAPIHandler:
         # Echo command if enabled
         echo = ''
         if self.evse.echo_enabled:
-            echo = f'${command}\r'
+            echo_cmd = RAPI_SOC + RAPI_SOC.join([cmd_code] + params)
+            echo = self._append_checksum(echo_cmd) + RAPI_LINE_ENDING
         
         # Look up command handler
         handler = self.commands.get(cmd_code)
         if handler is None:
-            return echo + RAPI_ERROR_RESPONSE + RAPI_LINE_ENDING
+            response = RAPI_ERROR_RESPONSE
+            return echo + self._append_checksum(response) + RAPI_LINE_ENDING
         
         try:
             response = handler(params)
-            return echo + response + RAPI_LINE_ENDING
+            return echo + self._append_checksum(response) + RAPI_LINE_ENDING
         except Exception as e:
             print(f"Error processing command {cmd_code}: {e}")
-            return echo + RAPI_ERROR_RESPONSE + RAPI_LINE_ENDING
+            response = RAPI_ERROR_RESPONSE
+            return echo + self._append_checksum(response) + RAPI_LINE_ENDING
     
     # Query Commands
     
@@ -160,6 +255,14 @@ class RAPIHandler:
         no_gnd = status['no_ground_count']
         stuck = status['stuck_relay_count']
         return f'{RAPI_OK_RESPONSE} {gfci} {no_gnd} {stuck}'
+    
+    def _cmd_get_ammeter_settings(self, params: list) -> str:
+        """$GA - Get ammeter settings (scale factor and offset)."""
+        return f'{RAPI_OK_RESPONSE} {self.ammeter_scale} {self.ammeter_offset}'
+    
+    def _cmd_get_mcu_id(self, params: list) -> str:
+        """$GI - Get MCU ID (simulated)."""
+        return f'{RAPI_OK_RESPONSE} {self.mcu_id}'
     
     def _cmd_get_time_limit(self, params: list) -> str:
         """$GT - Get time limit."""
@@ -223,6 +326,41 @@ class RAPIHandler:
         # Not implemented in basic version
         return RAPI_OK_RESPONSE
     
+    def _cmd_heartbeat_supervision(self, params: list) -> str:
+        """
+        $SY - Heartbeat supervision.
+        
+        $SY heartbeatinterval hearbeatcurrentlimit - Set heartbeat supervision
+        $SY - Heartbeat pulse (keep-alive)
+        $SY 165 - Acknowledge missed pulse (magic cookie = 0xA5)
+        """
+        if not params:
+            # Heartbeat pulse with no parameters
+            response = f'{RAPI_OK_RESPONSE} {self.heartbeat_interval} {self.heartbeat_current_limit}'
+            if self.heartbeat_missed:
+                response += ' 2'  # Missed pulse status
+            else:
+                response += ' 0'  # No missed pulse
+            return response
+        
+        try:
+            first_param = int(params[0])
+            
+            if first_param == 0xA5 or first_param == 165:
+                # Acknowledge missed pulse
+                self.heartbeat_missed = False
+                return RAPI_OK_RESPONSE
+            elif len(params) >= 2:
+                # Set heartbeat interval and current limit
+                self.heartbeat_interval = first_param
+                self.heartbeat_current_limit = int(params[1])
+                response = f'{RAPI_OK_RESPONSE} {self.heartbeat_interval} {self.heartbeat_current_limit} 0'
+                return response
+            else:
+                return RAPI_ERROR_RESPONSE
+        except (ValueError, IndexError):
+            return RAPI_ERROR_RESPONSE
+    
     def _cmd_enable(self, params: list) -> str:
         """$FE - Enable charging (exit sleep mode)."""
         if self.evse.enable():
@@ -246,3 +384,38 @@ class RAPIHandler:
     def _cmd_disable_gfci_test(self, params: list) -> str:
         """$F0 - Disable GFCI self-test."""
         return RAPI_OK_RESPONSE
+    
+    # Async Notifications
+    
+    def set_async_callback(self, callback):
+        """Set callback for sending async notifications."""
+        self.async_callback = callback
+    
+    def send_boot_notification(self):
+        """
+        Send $AB boot notification.
+        $AB postcode fwrev
+        postcode: 00 = boot OK
+        """
+        msg = f'$AB 00 {self.evse.firmware_version}'
+        msg_with_checksum = self._append_checksum(msg) + RAPI_LINE_ENDING
+        if self.async_callback:
+            self.async_callback(msg_with_checksum)
+            print(f"RAPI async: {msg_with_checksum.strip()}")
+    
+    def send_state_transition(self):
+        """
+        Send $AT state transition notification.
+        $AT evsestate pilotstate currentcapacity vflags
+        """
+        status = self.evse.get_status()
+        evse_state = f"{status['state']:02X}"
+        pilot_state = evse_state  # For now, pilot state matches EVSE state
+        current = status['current_capacity']
+        vflags = f"{status['error_flags']:02X}"
+        
+        msg = f'$AT {evse_state} {pilot_state} {current} {vflags}'
+        msg_with_checksum = self._append_checksum(msg) + RAPI_LINE_ENDING
+        if self.async_callback:
+            self.async_callback(msg_with_checksum)
+            print(f"RAPI async: {msg_with_checksum.strip()}")
