@@ -453,3 +453,23 @@ class EVSEStateMachine:
                 "lcd_row2": self._lcd_row2,
                 "lcd_backlight_color": self._lcd_backlight_color,
             }
+
+    def get_vflags(self) -> int:
+        """
+        Calculate vflags for RAPI status response.
+
+        Returns:
+            vflags value including error flags and ECVF state flags based on EVSE internal state
+        """
+        with self._lock:
+            vflags = self._error_flags  # Start with error flags
+            
+            # Add ECVF_EV_CONNECTED if EV is connected (states B or C)
+            if self._state in (EVSEState.STATE_B_CONNECTED, EVSEState.STATE_C_CHARGING):
+                vflags |= 0x0100  # ECVF_EV_CONNECTED
+            
+            # Add ECVF_CHARGING_ON if EV is charging (state C)
+            if self._state == EVSEState.STATE_C_CHARGING:
+                vflags |= 0x0040  # ECVF_CHARGING_ON
+            
+            return vflags

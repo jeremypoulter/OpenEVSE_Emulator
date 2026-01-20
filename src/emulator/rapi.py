@@ -59,6 +59,7 @@ class RAPIHandler:
             "SY": self._cmd_heartbeat_supervision,
             "FE": self._cmd_enable,
             "FD": self._cmd_disable,
+            "FS": self._cmd_sleep,
             "FR": self._cmd_reset,
             "F1": self._cmd_enable_gfci_test,
             "F0": self._cmd_disable_gfci_test,
@@ -227,18 +228,8 @@ class RAPIHandler:
         pilot_map = {"A": "01", "B": "02", "C": "03", "D": "04"}
         pilot_state_hex = pilot_map.get(pilot_state, "01")
 
-        # Calculate vflags based on EVSE state and EV connection
-        vflags = status["error_flags"]  # Start with error flags
-        
-        # Add ECVF_EV_CONNECTED if EV is connected (states B or C)
-        if pilot_state in ("B", "C"):
-            vflags |= 0x0100  # ECVF_EV_CONNECTED
-        
-        # Add ECVF_CHARGING_ON if EV is charging (state C)
-        if pilot_state == "C":
-            vflags |= 0x0040  # ECVF_CHARGING_ON
-
-        vflags_hex = f"{vflags:04X}"
+        # Calculate vflags using EVSE internal state (includes error flags and ECVF state)
+        vflags_hex = f"{self.evse.get_vflags():04X}"
 
         return f"{RAPI_OK_RESPONSE} {state} {elapsed} {pilot_state_hex} {vflags_hex}"
 
@@ -415,6 +406,11 @@ class RAPIHandler:
         self.evse.disable()
         return RAPI_OK_RESPONSE
 
+    def _cmd_sleep(self, params: list) -> str:
+        """$FS - Sleep EVSE (same as disable)."""
+        self.evse.disable()
+        return RAPI_OK_RESPONSE
+
     def _cmd_reset(self, params: list) -> str:
         """$FR - Reset EVSE."""
         self.evse.reset()
@@ -530,7 +526,8 @@ class RAPIHandler:
         pilot_map = {"A": "01", "B": "02", "C": "03", "D": "04"}
         pilot_state_hex = pilot_map.get(pilot_state, "01")
         current = status["current_capacity"]
-        vflags = f"{status['error_flags']:02X}"
+        # Calculate vflags using EVSE internal state (includes error flags and ECVF state)
+        vflags = f"{self.evse.get_vflags():04X}"
 
         msg = f"$AT {evse_state} {pilot_state_hex} {current} {vflags}"
         msg_with_checksum = self._append_checksum(msg) + RAPI_LINE_ENDING
