@@ -21,23 +21,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Initialize control event listeners
 function initializeControls() {
-    // EVSE controls
-    document.getElementById('btn-enable').addEventListener('click', () => apiCall('/api/evse/enable', 'POST'));
-    document.getElementById('btn-disable').addEventListener('click', () => apiCall('/api/evse/disable', 'POST'));
-    document.getElementById('btn-reset').addEventListener('click', () => apiCall('/api/evse/reset', 'POST'));
-    
-    document.getElementById('current-capacity').addEventListener('input', function(e) {
-        document.getElementById('current-capacity-value').textContent = e.target.value;
-    });
-    
-    document.getElementById('current-capacity').addEventListener('change', function(e) {
-        apiCall('/api/evse/current', 'POST', { amps: parseInt(e.target.value) });
-    });
-    
-    document.getElementById('service-level').addEventListener('change', function(e) {
-        apiCall('/api/evse/service_level', 'POST', { level: e.target.value });
-    });
-    
     // EV controls
     document.getElementById('btn-connect').addEventListener('click', () => apiCall('/api/ev/connect', 'POST'));
     document.getElementById('btn-disconnect').addEventListener('click', () => apiCall('/api/ev/disconnect', 'POST'));
@@ -175,11 +158,14 @@ function updateDisplay() {
     
     // Temperature
     document.getElementById('temperature').textContent = `${evse.temperature_ds.toFixed(1)}°C`;
-    
-    // Update controls to match state
-    document.getElementById('current-capacity').value = evse.current_capacity;
-    document.getElementById('current-capacity-value').textContent = evse.current_capacity;
-    
+
+    // Read-only EVSE configuration
+    document.getElementById('current-capacity-value').textContent = `${evse.current_capacity} A`;
+    document.getElementById('service-level-value').textContent = evse.service_level || 'Unknown';
+    document.getElementById('firmware-version').textContent = evse.firmware_version || '-';
+    document.getElementById('protocol-version').textContent = evse.protocol_version || '-';
+
+    // EV sliders
     document.getElementById('battery-soc').value = ev.soc;
     document.getElementById('battery-soc-value').textContent = ev.soc;
 }

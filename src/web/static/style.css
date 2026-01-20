@@ -110,6 +110,35 @@ header .subtitle {
     gap: 15px;
 }
 
+.readonly-note {
+    margin-bottom: 10px;
+    color: #555;
+    font-weight: 600;
+}
+
+.readonly-controls {
+    gap: 12px;
+}
+
+.readonly-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.readonly-label {
+    color: #555;
+    font-weight: 600;
+}
+
+.readonly-value {
+    font-weight: 700;
+    color: #333;
+}
+
 .control-group {
     display: flex;
     flex-direction: column;

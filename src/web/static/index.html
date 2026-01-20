@@ -55,25 +55,23 @@
         <!-- EVSE Controls -->
         <div class="panel">
             <h2>EVSE Controls</h2>
-            <div class="controls">
-                <div class="control-group">
-                    <button id="btn-enable" class="btn btn-success">Enable Charging</button>
-                    <button id="btn-disable" class="btn btn-warning">Sleep Mode</button>
-                    <button id="btn-reset" class="btn btn-secondary">Reset</button>
+            <p class="readonly-note">EVSE configuration is controlled via RAPI commands. Values below are read-only.</p>
+            <div class="controls readonly-controls">
+                <div class="control-group readonly-row">
+                    <div class="readonly-label">Current Capacity</div>
+                    <div id="current-capacity-value" class="readonly-value">32 A</div>
                 </div>
-                
-                <div class="control-group">
-                    <label for="current-capacity">Current Capacity: <span id="current-capacity-value">32</span> A</label>
-                    <input type="range" id="current-capacity" min="6" max="80" value="32" step="1">
+                <div class="control-group readonly-row">
+                    <div class="readonly-label">Service Level</div>
+                    <div id="service-level-value" class="readonly-value">L2 (240V)</div>
                 </div>
-                
-                <div class="control-group">
-                    <label for="service-level">Service Level:</label>
-                    <select id="service-level">
-                        <option value="L1">L1 (120V)</option>
-                        <option value="L2" selected>L2 (240V)</option>
-                        <option value="Auto">Auto</option>
-                    </select>
+                <div class="control-group readonly-row">
+                    <div class="readonly-label">Firmware Version</div>
+                    <div id="firmware-version" class="readonly-value">-</div>
+                </div>
+                <div class="control-group readonly-row">
+                    <div class="readonly-label">Protocol Version</div>
+                    <div id="protocol-version" class="readonly-value">-</div>
                 </div>
             </div>
         </div>
