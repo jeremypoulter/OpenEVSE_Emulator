@@ -22,16 +22,19 @@ RAPI_CHECKSUM_PREFIX = "^"  # Checksum prefix
 class RAPIHandler:
     """Handles RAPI protocol commands and responses."""
 
-    def __init__(self, evse: "EVSEStateMachine", ev: "EVSimulator"):
+    def __init__(self, evse: "EVSEStateMachine", ev: "EVSimulator", strict_checksum: bool = False):
         """
         Initialize the RAPI handler.
 
         Args:
             evse: EVSE state machine instance
             ev: EV simulator instance
+            strict_checksum: If True, reject commands with invalid checksums. If False (default), 
+                           log warnings but process commands anyway for compatibility.
         """
         self.evse = evse
         self.ev = ev
+        self.strict_checksum = strict_checksum
         self.async_callback = None  # Callback to send async messages
 
         # Command dispatch table
@@ -59,6 +62,8 @@ class RAPIHandler:
             "FR": self._cmd_reset,
             "F1": self._cmd_enable_gfci_test,
             "F0": self._cmd_disable_gfci_test,
+            "FP": self._cmd_lcd_display,
+            "FB": self._cmd_lcd_backlight,
         }
 
         # Ammeter calibration settings
@@ -112,7 +117,7 @@ class RAPIHandler:
         Verify checksum in RAPI command.
 
         Args:
-            data: RAPI command string with checksum
+            data: RAPI command string with checksum (including $ prefix)
 
         Returns:
             True if checksum is valid, False otherwise
@@ -125,10 +130,11 @@ class RAPIHandler:
 
         try:
             # Extract data before checksum and the checksum value
+            # NOTE: data_part INCLUDES the $ prefix - that's how OpenEVSE calculates it
             data_part = data[:checksum_pos]
             checksum_part = data[checksum_pos + 1 : checksum_pos + 3]
 
-            # Calculate what checksum should be
+            # Calculate what checksum should be (includes $ prefix)
             calculated = RAPIHandler._calculate_checksum(data_part)
             expected = f"{RAPI_CHECKSUM_PREFIX}{checksum_part}"
 
@@ -156,8 +162,12 @@ class RAPIHandler:
 
         # Verify checksum if present
         if not self._verify_checksum(command):
-            response = RAPI_ERROR_RESPONSE
-            return self._append_checksum(response) + RAPI_LINE_ENDING
+            if self.strict_checksum:
+                response = RAPI_ERROR_RESPONSE
+                return self._append_checksum(response) + RAPI_LINE_ENDING
+            else:
+                # Log warning but continue processing (lenient mode for compatibility)
+                print(f"Warning: Checksum mismatch for command: {command[:50]}...")
 
         # Remove $ prefix and checksum (if present)
         command = command[1:]
@@ -403,6 +413,78 @@ class RAPIHandler:
     def _cmd_disable_gfci_test(self, params: list) -> str:
         """$F0 - Disable GFCI self-test."""
         return RAPI_OK_RESPONSE
+
+    def _cmd_lcd_display(self, params: list) -> str:
+        """
+        $FP - Set LCD display content (2x16 character display).
+
+        Format: $FP x y text
+        where:
+          x = column (0-15)
+          y = row (0-1)
+          text = text to display at position (x, y)
+
+        OPTIONAL: character 0x11 can be used for spaces (more reliable on HD44780)
+
+        Examples:
+        $FP 0 0 OpenEVSE        - Set row 0 starting at column 0 to "OpenEVSE"
+        $FP 0 1 Charging 16A    - Set row 1 starting at column 0 to "Charging 16A"
+        $FP 5 0 v8.2.1          - Set row 0 starting at column 5 to "v8.2.1"
+        $FP 13 0                - Clear from column 13 on row 0 (empty text)
+        """
+        if len(params) < 2:
+            return RAPI_ERROR_RESPONSE
+
+        try:
+            x = int(params[0])  # Column
+            y = int(params[1])  # Row
+            text = " ".join(params[2:]) if len(params) > 2 else ""
+
+            # Validate row and column
+            if not (0 <= y <= 1 and 0 <= x <= 15):
+                return RAPI_ERROR_RESPONSE
+
+            self.evse.set_lcd_text_at(x, y, text)
+            return RAPI_OK_RESPONSE
+
+        except (ValueError, IndexError):
+            return RAPI_ERROR_RESPONSE
+
+    def _cmd_lcd_backlight(self, params: list) -> str:
+        """
+        $FB - Set LCD backlight color.
+
+        Format: $FB color
+        where color is:
+          0 = OFF
+          1 = RED
+          2 = GREEN
+          3 = YELLOW
+          4 = BLUE
+          5 = VIOLET
+          6 = TEAL
+          7 = WHITE
+
+        Examples:
+        $FB 7           - Set backlight to white
+        $FB 2           - Set backlight to green
+        $FB 0           - Turn backlight off
+        """
+        if not params:
+            return RAPI_ERROR_RESPONSE
+
+        try:
+            color = int(params[0])
+
+            # Validate color code (0-7)
+            if not (0 <= color <= 7):
+                return RAPI_ERROR_RESPONSE
+
+            self.evse.set_lcd_backlight_color(color)
+            return RAPI_OK_RESPONSE
+
+        except (ValueError, IndexError):
+            return RAPI_ERROR_RESPONSE
 
     # Async Notifications
 

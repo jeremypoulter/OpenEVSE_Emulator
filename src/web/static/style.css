@@ -70,6 +70,43 @@ header .subtitle {
     gap: 15px;
 }
 
+/* LCD Display */
+.lcd-display {
+    background: #1a1a1a;
+    border: 3px solid #333;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+    font-family: 'Courier New', monospace;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    display: inline-block;
+}
+
+.lcd-row {
+    background: #2d5016;
+    color: #00ff00;
+    font-size: 18px;
+    font-weight: bold;
+    padding: 8px 10px;
+    margin: 4px 0;
+    letter-spacing: 3px;
+    text-shadow: 0 0 3px rgba(0,255,0,0.5);
+    line-height: 1.4;
+    width: fit-content;
+    white-space: pre;
+    font-family: 'Courier New', 'Courier', monospace;
+}
+
+/* LCD Backlight colors */
+.lcd-backlight-off { background: #222; color: #444; text-shadow: none; }
+.lcd-backlight-red { background: #4a0000; color: #ff6666; text-shadow: 0 0 3px rgba(255,102,102,0.5); }
+.lcd-backlight-green { background: #2d5016; color: #00ff00; text-shadow: 0 0 3px rgba(0,255,0,0.5); }
+.lcd-backlight-yellow { background: #4a4400; color: #ffff66; text-shadow: 0 0 3px rgba(255,255,102,0.5); }
+.lcd-backlight-blue { background: #00264a; color: #6666ff; text-shadow: 0 0 3px rgba(102,102,255,0.5); }
+.lcd-backlight-violet { background: #3a0044; color: #ff66ff; text-shadow: 0 0 3px rgba(255,102,255,0.5); }
+.lcd-backlight-teal { background: #004444; color: #66ffff; text-shadow: 0 0 3px rgba(102,255,255,0.5); }
+.lcd-backlight-white { background: #444; color: #fff; text-shadow: 0 0 3px rgba(255,255,255,0.5); }
+
 .status-item {
     background: #f8f9fa;
     padding: 15px;

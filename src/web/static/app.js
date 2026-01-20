@@ -116,10 +116,73 @@ async function updateStatus() {
 function updateDisplay() {
     const evse = currentState.evse;
     const ev = currentState.ev;
+
+    // LCD Display
+    const row1 = evse.lcd_row1 || "OpenEVSE      ";
+    const row2 = evse.lcd_row2 || "v8.2.1        ";
+    document.getElementById('lcd-row1').textContent = row1;
+    document.getElementById('lcd-row2').textContent = row2;
+
+    // LCD Backlight color - auto-update based on EVSE state if not explicitly set
+    let color = evse.lcd_backlight_color !== undefined ? evse.lcd_backlight_color : 7;
+    
+    // Auto-update backlight based on state (like real OpenEVSE firmware)
+    const stateName = evse.state_name || 'UNKNOWN';
+    if (stateName.includes('NOT_CONNECTED')) {
+        color = 2; // GREEN - No EV Connected (active/ready)
+    } else if (stateName.includes('CONNECTED')) {
+        color = 3; // YELLOW - Connected, but not charging
+    } else if (stateName.includes('CHARGING')) {
+        color = 6; // CYAN/TEAL - Charging
+    } else if (stateName.includes('ERROR')) {
+        color = 1; // RED - Fault
+    } else if (stateName.includes('SLEEP')) {
+        // Sleep mode: CYAN/TEAL if EV connected, PURPLE/VIOLET if disconnected
+        color = ev.connected ? 6 : 5; // TEAL if connected, VIOLET if disconnected
+    }
+    
+    // Map color codes to CSS classes
+    const backlightColors = {
+        0: 'Off',
+        1: 'Red',
+        2: 'Green',
+        3: 'Yellow',
+        4: 'Blue',
+        5: 'Violet',
+        6: 'Teal',
+        7: 'White'
+    };
+    
+    const backlightClasses = {
+        0: 'lcd-backlight-off',
+        1: 'lcd-backlight-red',
+        2: 'lcd-backlight-green',
+        3: 'lcd-backlight-yellow',
+        4: 'lcd-backlight-blue',
+        5: 'lcd-backlight-violet',
+        6: 'lcd-backlight-teal',
+        7: 'lcd-backlight-white'
+    };
+    
+    // Apply backlight color to LCD rows
+    const row1El = document.getElementById('lcd-row1');
+    const row2El = document.getElementById('lcd-row2');
+    
+    // Remove all backlight classes
+    Object.values(backlightClasses).forEach(cls => {
+        row1El.classList.remove(cls);
+        row2El.classList.remove(cls);
+    });
+    
+    // Add current backlight class
+    const backlightClass = backlightClasses[color] || backlightClasses[7];
+    row1El.classList.add(backlightClass);
+    row2El.classList.add(backlightClass);
+    
+    document.getElementById('lcd-backlight-color').textContent = backlightColors[color] || 'Unknown';
     
     // EVSE State
     const stateElement = document.getElementById('evse-state');
-    const stateName = evse.state_name || 'UNKNOWN';
     stateElement.textContent = stateName.replace('STATE_', '').replace(/_/g, ' ');
     
     // Set state color

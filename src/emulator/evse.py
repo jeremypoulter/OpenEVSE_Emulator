@@ -85,6 +85,13 @@ class EVSEStateMachine:
         self._time_limit_minutes = 0
         self._kwh_limit = 0
 
+        # LCD Display (2x16 characters)
+        self._lcd_row1 = "OpenEVSE      "
+        self._lcd_row2 = "Ready         "
+
+        # LCD Backlight color (0=OFF, 1=RED, 2=GREEN, 3=YELLOW, 4=BLUE, 5=VIOLET, 6=TEAL, 7=WHITE)
+        self._lcd_backlight_color = 2  # GREEN by default (No EV Connected)
+
         # State change callbacks (support multiple subscribers)
         self._state_change_callbacks: list[Callable] = []
 
@@ -171,6 +178,75 @@ class EVSEStateMachine:
     def echo_enabled(self, value: bool):
         with self._lock:
             self._echo_enabled = value
+
+    @property
+    def lcd_display(self) -> dict:
+        """Get LCD display content (2x16 characters)."""
+        with self._lock:
+            return {
+                "row1": self._lcd_row1[:16],
+                "row2": self._lcd_row2[:16],
+                "backlight_color": self._lcd_backlight_color,
+            }
+
+    def set_lcd_display(self, row1: str = None, row2: str = None):
+        """
+        Set LCD display content.
+
+        Args:
+            row1: First row (max 16 chars, padded/truncated)
+            row2: Second row (max 16 chars, padded/truncated)
+        """
+        with self._lock:
+            if row1 is not None:
+                # Pad or truncate to exactly 16 characters
+                self._lcd_row1 = (row1 + " " * 16)[:16]
+            if row2 is not None:
+                self._lcd_row2 = (row2 + " " * 16)[:16]
+
+    def set_lcd_text_at(self, x: int, y: int, text: str):
+        """
+        Set LCD display text at specific position (row, column).
+
+        Args:
+            x: Column position (0-15)
+            y: Row (0-1)
+            text: Text to display
+        """
+        with self._lock:
+            if not (0 <= y <= 1 and 0 <= x <= 15):
+                return
+
+            row_key = "_lcd_row1" if y == 0 else "_lcd_row2"
+            current_row = self._lcd_row1 if y == 0 else self._lcd_row2
+
+            # Convert 0x11 or 0xFE to space if present (both are used by different implementations)
+            text_clean = text.replace("\x11", " ").replace("\xFE", " ")
+
+            # Insert text at position x
+            row_list = list(current_row)
+            for i, char in enumerate(text_clean):
+                if x + i < 16:
+                    row_list[x + i] = char
+
+            updated_row = "".join(row_list)
+
+            if y == 0:
+                self._lcd_row1 = updated_row
+            else:
+                self._lcd_row2 = updated_row
+
+    def set_lcd_backlight_color(self, color: int):
+        """
+        Set LCD backlight color.
+
+        Args:
+            color: Color code (0-7)
+                   0=OFF, 1=RED, 2=GREEN, 3=YELLOW, 4=BLUE, 5=VIOLET, 6=TEAL, 7=WHITE
+        """
+        with self._lock:
+            if 0 <= color <= 7:
+                self._lcd_backlight_color = color
 
     def enable(self) -> bool:
         """
@@ -373,4 +449,7 @@ class EVSEStateMachine:
                 "stuck_relay_count": self._stuck_relay_count,
                 "firmware_version": self.firmware_version,
                 "protocol_version": self.protocol_version,
+                "lcd_row1": self._lcd_row1,
+                "lcd_row2": self._lcd_row2,
+                "lcd_backlight_color": self._lcd_backlight_color,
             }

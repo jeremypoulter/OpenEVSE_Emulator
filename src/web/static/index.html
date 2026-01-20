@@ -16,6 +16,18 @@
         <!-- Status Dashboard -->
         <div class="panel dashboard">
             <h2>Status Dashboard</h2>
+            
+            <!-- LCD Display -->
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div class="lcd-display">
+                    <div class="lcd-row lcd-backlight-green" id="lcd-row1">OpenEVSE      </div>
+                    <div class="lcd-row lcd-backlight-green" id="lcd-row2">Ready         </div>
+                </div>
+                <div style="font-size: 0.85em; color: #666; margin-top: 5px;">
+                    Backlight: <span id="lcd-backlight-color">Green</span> (No EV Connected)
+                </div>
+            </div>
+
             <div class="status-grid">
                 <div class="status-item">
                     <div class="status-label">EVSE State</div>

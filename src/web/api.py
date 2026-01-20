@@ -455,6 +455,38 @@ ws.onmessage = (event) => {
             self._broadcast_status()
             return jsonify({"success": True})
 
+        @self.app.route("/api/evse/lcd", methods=["GET"])
+        def get_lcd_display():
+            """Get current LCD display content."""
+            return jsonify(self.evse.lcd_display)
+
+        @self.app.route("/api/evse/lcd", methods=["POST"])
+        def set_lcd_display():
+            """Set LCD display content."""
+            data = request.get_json()
+            row1 = data.get("row1")
+            row2 = data.get("row2")
+            self.evse.set_lcd_display(row1=row1, row2=row2)
+            self._broadcast_status()
+            return jsonify({"success": True})
+
+        @self.app.route("/api/evse/lcd/backlight", methods=["GET"])
+        def get_lcd_backlight():
+            """Get LCD backlight color."""
+            lcd = self.evse.lcd_display
+            return jsonify({"backlight_color": lcd.get("backlight_color", 7)})
+
+        @self.app.route("/api/evse/lcd/backlight", methods=["POST"])
+        def set_lcd_backlight():
+            """Set LCD backlight color (0-7)."""
+            data = request.get_json()
+            color = data.get("color")
+            if color is None or not (0 <= color <= 7):
+                return jsonify({"error": "Color must be 0-7"}), 400
+            self.evse.set_lcd_backlight_color(color)
+            self._broadcast_status()
+            return jsonify({"success": True})
+
         # EV endpoints
         @self.app.route("/api/ev/status", methods=["GET"])
         def get_ev_status():
