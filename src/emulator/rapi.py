@@ -213,7 +213,10 @@ class RAPIHandler:
         evsestate(hex): EVSE state
         elapsed(dec): elapsed charge time in seconds
         pilotstate(hex): EV pilot state
-        vflags(hex): error flags
+        vflags(hex): ECVF_xxx flags including:
+          - ECVF_EV_CONNECTED (0x0100) when EV connected (state B/C)
+          - ECVF_CHARGING_ON (0x0040) when charging (state C)
+          - Error flags (GFCI, stuck relay, etc)
         """
         status = self.evse.get_status()
         state = f"{status['state']:02X}"
@@ -224,9 +227,20 @@ class RAPIHandler:
         pilot_map = {"A": "01", "B": "02", "C": "03", "D": "04"}
         pilot_state_hex = pilot_map.get(pilot_state, "01")
 
-        vflags = f"{status['error_flags']:02X}"
+        # Calculate vflags based on EVSE state and EV connection
+        vflags = status["error_flags"]  # Start with error flags
+        
+        # Add ECVF_EV_CONNECTED if EV is connected (states B or C)
+        if pilot_state in ("B", "C"):
+            vflags |= 0x0100  # ECVF_EV_CONNECTED
+        
+        # Add ECVF_CHARGING_ON if EV is charging (state C)
+        if pilot_state == "C":
+            vflags |= 0x0040  # ECVF_CHARGING_ON
 
-        return f"{RAPI_OK_RESPONSE} {state} {elapsed} {pilot_state_hex} {vflags}"
+        vflags_hex = f"{vflags:04X}"
+
+        return f"{RAPI_OK_RESPONSE} {state} {elapsed} {pilot_state_hex} {vflags_hex}"
 
     def _cmd_get_current_voltage(self, params: list) -> str:
         """$GG - Get real-time current and voltage."""
