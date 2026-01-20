@@ -61,6 +61,13 @@ class EVSEStateMachine:
         self._actual_current_amps = 0.0
         self._voltage_mv = 240000  # 240V in millivolts
 
+        # Current capacity limits
+        self._min_capacity_amps = 6
+        self._max_hw_capacity_amps = 80
+        self._pilot_capacity_amps = 32
+        self._max_configured_capacity_amps = 32
+        self._max_capacity_locked = False  # Lock after $SC M per spec
+
         # Service level
         self._service_level = "L2"  # L1, L2, or Auto
 
@@ -152,6 +159,75 @@ class EVSEStateMachine:
             self._current_capacity_amps = max(6, min(80, value))
 
     @property
+    def min_capacity_amps(self) -> int:
+        """Minimum allowed current capacity in amps."""
+        with self._lock:
+            return self._min_capacity_amps
+
+    @property
+    def max_hw_capacity_amps(self) -> int:
+        """Hardware maximum current capacity in amps."""
+        with self._lock:
+            return self._max_hw_capacity_amps
+
+    @property
+    def pilot_capacity_amps(self) -> int:
+        """Current capacity advertised by pilot in amps."""
+        with self._lock:
+            return self._pilot_capacity_amps
+
+    @pilot_capacity_amps.setter
+    def pilot_capacity_amps(self, value: int):
+        with self._lock:
+            self._pilot_capacity_amps = max(
+                self._min_capacity_amps, min(self._max_hw_capacity_amps, value)
+            )
+
+    @property
+    def max_configured_capacity_amps(self) -> int:
+        """Maximum configured current capacity in amps."""
+        with self._lock:
+            return self._max_configured_capacity_amps
+
+    @max_configured_capacity_amps.setter
+    def max_configured_capacity_amps(self, value: int):
+        with self._lock:
+            self._max_configured_capacity_amps = max(
+                self._min_capacity_amps, min(self._max_hw_capacity_amps, value)
+            )
+
+    def set_current_capacity(self, amps: int, volatile: bool = False) -> tuple[bool, int]:
+        """Set current capacity, clamped to allowed range.
+
+        Returns (ok, amps_set); ok=False when clamped.
+        volatile flag is ignored in emulator (no EEPROM), present for spec parity.
+        """
+        with self._lock:
+            allowed_max = min(self._max_configured_capacity_amps, self._max_hw_capacity_amps)
+            amps_set = max(self._min_capacity_amps, min(allowed_max, amps))
+            self._current_capacity_amps = amps_set
+            return (amps_set == amps), amps_set
+
+    def set_max_capacity(self, amps: int) -> tuple[bool, int]:
+        """Set maximum configured capacity once (lock afterwards).
+
+        Returns (ok, max_set). If already locked, ok=False.
+        """
+        with self._lock:
+            if self._max_capacity_locked:
+                return False, self._max_configured_capacity_amps
+
+            max_set = max(self._min_capacity_amps, min(self._max_hw_capacity_amps, amps))
+            self._max_configured_capacity_amps = max_set
+            self._max_capacity_locked = True
+
+            # Ensure current capacity does not exceed new max
+            if self._current_capacity_amps > max_set:
+                self._current_capacity_amps = max_set
+
+            return True, max_set
+
+    @property
     def service_level(self) -> str:
         """Service level: L1, L2, or Auto."""
         with self._lock:
@@ -199,7 +275,6 @@ class EVSEStateMachine:
         """
         with self._lock:
             if row1 is not None:
-                # Pad or truncate to exactly 16 characters
                 self._lcd_row1 = (row1 + " " * 16)[:16]
             if row2 is not None:
                 self._lcd_row2 = (row2 + " " * 16)[:16]

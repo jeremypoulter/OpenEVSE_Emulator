@@ -45,6 +45,7 @@ class RAPIHandler:
             "GV": self._cmd_get_version,
             "GU": self._cmd_get_energy,
             "GC": self._cmd_get_current_capacity,
+            "SC": self._cmd_set_current_capacity,
             "GE": self._cmd_get_settings,
             "GF": self._cmd_get_fault_counters,
             "GA": self._cmd_get_ammeter_settings,
@@ -266,8 +267,40 @@ class RAPIHandler:
         return f"{RAPI_OK_RESPONSE} {wh} {ws}"
 
     def _cmd_get_current_capacity(self, params: list) -> str:
-        """$GC - Get current capacity."""
-        return f"{RAPI_OK_RESPONSE} {self.evse.current_capacity_amps}"
+        """$GC - Get current capacity info.
+
+        Response: $OK minamps hmaxamps pilotamps cmaxamps
+        """
+        min_amps = self.evse.min_capacity_amps
+        max_hw_amps = self.evse.max_hw_capacity_amps
+        pilot_amps = self.evse.pilot_capacity_amps
+        max_config_amps = self.evse.max_configured_capacity_amps
+        return f"{RAPI_OK_RESPONSE} {min_amps} {max_hw_amps} {pilot_amps} {max_config_amps}"
+
+    def _cmd_set_current_capacity(self, params: list) -> str:
+        """$SC amps [V|M] - Set current capacity.
+
+        - No suffix: set current capacity (clamped). $OK on exact, $NK ampsset on clamp.
+        - V: volatile set (emulator treats same as normal, no persistence).
+        - M: set maximum configured capacity once; further $SC M return $NK current_max.
+        """
+        if not params:
+            return RAPI_ERROR_RESPONSE
+
+        try:
+            amps = int(params[0])
+        except ValueError:
+            return RAPI_ERROR_RESPONSE
+
+        mode = params[1].upper() if len(params) > 1 else None
+
+        if mode == "M":
+            ok, max_set = self.evse.set_max_capacity(amps)
+            return f"{RAPI_OK_RESPONSE if ok else RAPI_ERROR_RESPONSE} {max_set}"
+
+        volatile = mode == "V"
+        ok, amps_set = self.evse.set_current_capacity(amps, volatile=volatile)
+        return f"{RAPI_OK_RESPONSE if ok else RAPI_ERROR_RESPONSE} {amps_set}"
 
     def _cmd_get_settings(self, params: list) -> str:
         """$GE - Get EVSE settings."""

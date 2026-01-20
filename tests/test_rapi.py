@@ -55,7 +55,8 @@ def test_get_energy(rapi):
 def test_get_current_capacity(rapi):
     """Test $GC command."""
     response = rapi.process_command("$GC\r")
-    assert "$OK 32" in response
+    # Expect four values: minamps hmaxamps pilotamps cmaxamps
+    assert response.startswith("$OK 6 80 32 32")
 
 
 def test_set_current(rapi):
