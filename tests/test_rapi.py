@@ -19,7 +19,7 @@ def test_get_state(rapi):
     response = rapi.process_command("$GS\r")
     assert response.startswith("$OK")
     assert response.endswith("\r")
-    
+
     # Should have 4 values: state, elapsed, pilotstate, vflags
     parts = response.strip().split()
     assert len(parts) == 5  # $OK + 4 values
@@ -174,10 +174,11 @@ def test_case_insensitive(rapi):
 
 # Tests for additional commands
 
+
 def test_get_ammeter_settings(rapi):
     """Test $GA - Get ammeter settings."""
     response = rapi.process_command("$GA")
-    
+
     assert response.startswith("$OK ")
     assert "^" in response  # Has checksum
     assert response.endswith("\r")
@@ -187,11 +188,11 @@ def test_get_ammeter_settings_values(rapi):
     """Test $GA returns scale factor and offset."""
     rapi.ammeter_scale = 1.5
     rapi.ammeter_offset = 10
-    
+
     response = rapi.process_command("$GA")
-    msg = response.rstrip('\r').split('^')[0]
+    msg = response.rstrip("\r").split("^")[0]
     parts = msg.split()
-    
+
     assert parts[0] == "$OK"
     assert float(parts[1]) == 1.5
     assert int(parts[2]) == 10
@@ -200,13 +201,13 @@ def test_get_ammeter_settings_values(rapi):
 def test_get_mcu_id(rapi):
     """Test $GI - Get MCU ID."""
     response = rapi.process_command("$GI")
-    
+
     assert response.startswith("$OK ")
     assert "^" in response  # Has checksum
     assert response.endswith("\r")
-    
+
     # MCU ID should be consistent
-    msg = response.rstrip('\r').split('^')[0].split()[1]
+    msg = response.rstrip("\r").split("^")[0].split()[1]
     assert len(msg) > 0
 
 
@@ -214,17 +215,17 @@ def test_get_mcu_id_consistent(rapi):
     """Test $GI returns same ID on multiple calls."""
     response1 = rapi.process_command("$GI")
     response2 = rapi.process_command("$GI")
-    
-    msg1 = response1.rstrip('\r').split('^')[0].split()[1]
-    msg2 = response2.rstrip('\r').split('^')[0].split()[1]
-    
+
+    msg1 = response1.rstrip("\r").split("^")[0].split()[1]
+    msg2 = response2.rstrip("\r").split("^")[0].split()[1]
+
     assert msg1 == msg2
 
 
 def test_heartbeat_supervision_pulse(rapi):
     """Test $SY - Heartbeat pulse (keep-alive)."""
     response = rapi.process_command("$SY")
-    
+
     assert response.startswith("$OK ")
     assert "^" in response  # Has checksum
     assert response.endswith("\r")
@@ -233,21 +234,21 @@ def test_heartbeat_supervision_pulse(rapi):
 def test_heartbeat_supervision_set(rapi):
     """Test $SY - Set heartbeat interval and current limit."""
     response = rapi.process_command("$SY 100 6")
-    
+
     assert response.startswith("$OK ")
-    msg = response.rstrip('\r').split('^')[0]
+    msg = response.rstrip("\r").split("^")[0]
     parts = msg.split()
-    
+
     # Should return OK interval limit status
     assert len(parts) >= 3
     assert int(parts[1]) == 100  # Interval
-    assert int(parts[2]) == 6    # Current limit
+    assert int(parts[2]) == 6  # Current limit
 
 
 def test_heartbeat_supervision_sets_values(rapi):
     """Test $SY sets heartbeat parameters."""
     rapi.process_command("$SY 100 6")
-    
+
     assert rapi.heartbeat_interval == 100
     assert rapi.heartbeat_current_limit == 6
 
@@ -256,12 +257,12 @@ def test_heartbeat_supervision_acknowledge_missed(rapi):
     """Test $SY 165 - Acknowledge missed pulse."""
     # Mark as missed
     rapi.heartbeat_missed = True
-    
+
     # Send acknowledgement
     response = rapi.process_command("$SY 165")
-    
+
     assert response.startswith("$OK")
-    assert rapi.heartbeat_missed == False
+    assert rapi.heartbeat_missed is False
 
 
 def test_heartbeat_supervision_status(rapi):
@@ -269,8 +270,8 @@ def test_heartbeat_supervision_status(rapi):
     # No missed pulses
     rapi.heartbeat_missed = False
     response = rapi.process_command("$SY")
-    msg = response.rstrip('\r').split('^')[0]
-    
+    msg = response.rstrip("\r").split("^")[0]
+
     # Should have status 0
     assert " 0" in msg or msg.endswith("0")
 
@@ -280,7 +281,7 @@ def test_heartbeat_supervision_with_checksum(rapi):
     cmd = "$SY 100 6"
     checksum = RAPIHandler._calculate_checksum(cmd)
     response = rapi.process_command(f"{cmd}{checksum}")
-    
+
     assert response.startswith("$OK")
     # Should still set values
     assert rapi.heartbeat_interval == 100
@@ -289,5 +290,5 @@ def test_heartbeat_supervision_with_checksum(rapi):
 def test_heartbeat_invalid_parameters(rapi):
     """Test $SY with invalid parameters."""
     response = rapi.process_command("$SY abc def")
-    
+
     assert response.startswith("$NK")

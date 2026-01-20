@@ -8,9 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import os
-import sys
 from typing import TYPE_CHECKING
-from pathlib import Path
 
 # Handle imports for both direct execution and test execution
 try:
@@ -527,9 +525,9 @@ ws.onmessage = (event) => {
         @self.app.route("/api/errors/trigger", methods=["POST"])
         def trigger_error():
             data = request.get_json()
-            if not data or 'error' not in data:
-                return jsonify({'error': 'Missing error parameter'}), 400
-            
+            if not data or "error" not in data:
+                return jsonify({"error": "Missing error parameter"}), 400
+
             error_map = {
                 "gfci": ErrorFlags.GFCI_TRIP,
                 "stuck_relay": ErrorFlags.STUCK_RELAY,

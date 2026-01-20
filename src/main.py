@@ -55,11 +55,11 @@ class OpenEVSEEmulator:
         self.serial_port = VirtualSerialPort(
             mode=serial_config["mode"], tcp_port=serial_config["tcp_port"]
         )
-        
+
         # Wire up state change callback to send async notifications
         self.evse.set_state_change_callback(self._on_state_change)
-        
-        web_config = self.config['web']
+
+        web_config = self.config["web"]
         self.web_api = WebAPI(
             self.evse, self.ev, host=web_config["host"], port=web_config["port"]
         )
@@ -114,14 +114,14 @@ class OpenEVSEEmulator:
             return False
 
         print(f"Serial port: {self.serial_port.get_port_info()}")
-        
+
         # Set up async message callback
         self.rapi.set_async_callback(self._send_async_message)
-        
+
         # Send boot notification
         print("\nSending boot notification...")
         self.rapi.send_boot_notification()
-        
+
         # Start simulation loop
         print("\nStarting simulation loop...")
         self.running = True
@@ -200,12 +200,12 @@ class OpenEVSEEmulator:
         print(f"RAPI: {data.strip()} -> {response.strip()}")
 
         return response
-    
+
     def _send_async_message(self, message: str):
         """Send async message through serial port."""
         if self.serial_port:
             self.serial_port.write(message)
-    
+
     def _on_state_change(self, new_state):
         """Handle EVSE state changes and send async notification."""
         self.rapi.send_state_transition()

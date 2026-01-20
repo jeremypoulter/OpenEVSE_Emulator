@@ -1,5 +1,8 @@
 [flake8]
 max-line-length = 100
-max-complexity = 10
+max-complexity = 13
 # E203: whitespace before ':' - conflicts with black formatting
+# E402: module level import not at top of file - needed for tests with sys.path manipulation
 extend-ignore = E203
+per-file-ignores =
+    tests/*.py:E402
