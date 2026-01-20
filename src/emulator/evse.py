@@ -85,15 +85,42 @@ class EVSEStateMachine:
         self._time_limit_minutes = 0
         self._kwh_limit = 0
 
-        # State change callback
-        self._state_change_callback: Optional[Callable] = None
+        # State change callbacks (support multiple subscribers)
+        self._state_change_callbacks: list[Callable] = []
 
         # Thread safety
         self._lock = threading.Lock()
 
     def set_state_change_callback(self, callback: Callable):
-        """Set callback for state changes."""
-        self._state_change_callback = callback
+        """Add callback for state changes (replaces old behavior for compatibility)."""
+        self.add_state_change_callback(callback)
+
+    def add_state_change_callback(self, callback: Callable):
+        """Add callback for state changes."""
+        with self._lock:
+            if callback not in self._state_change_callbacks:
+                self._state_change_callbacks.append(callback)
+
+    def remove_state_change_callback(self, callback: Callable):
+        """Remove callback for state changes."""
+        with self._lock:
+            if callback in self._state_change_callbacks:
+                self._state_change_callbacks.remove(callback)
+
+    def _notify_state_change(self, new_state: EVSEState):
+        """Notify all registered callbacks of state change (call with lock held)."""
+        # Make a copy of callbacks to avoid issues if modified during iteration
+        callbacks = self._state_change_callbacks.copy()
+        # Release lock before calling callbacks to avoid deadlock
+        self._lock.release()
+        try:
+            for callback in callbacks:
+                try:
+                    callback(new_state)
+                except Exception as e:
+                    print(f"Error in state change callback: {e}")
+        finally:
+            self._lock.acquire()
 
     @property
     def state(self) -> EVSEState:
@@ -193,8 +220,8 @@ class EVSEStateMachine:
         self._actual_current_amps = 0.0
 
         # Notify state change
-        if self._state_change_callback:
-            self._state_change_callback(EVSEState.STATE_ERROR)
+        if self._state_change_callbacks:
+            self._notify_state_change(EVSEState.STATE_ERROR)
 
     def clear_errors(self):
         """Clear all error flags."""
@@ -202,12 +229,12 @@ class EVSEStateMachine:
             # Check if we were in error state before clearing
             was_error = self._error_flags != 0
             self._error_flags = 0
-            if was_error and self._state_change_callback:
+            if was_error and self._state_change_callbacks:
                 # Determine new state after clearing errors
                 new_state = self._state
                 if self._sleep_mode:
                     new_state = EVSEState.STATE_SLEEP
-                self._state_change_callback(new_state)
+                self._notify_state_change(new_state)
 
     def update_state(self, ev_pilot_state: str):
         """
@@ -255,13 +282,14 @@ class EVSEStateMachine:
             state_changed = (
                 old_state != self._state or old_error_flags != self._error_flags
             )
-            if state_changed and self._state_change_callback:
+            if state_changed and self._state_change_callbacks:
                 notify_callback = True
                 new_state = self._state if self._error_flags != 0 else self._state
 
-        # Call callback outside of lock to avoid deadlock
+        # Call callbacks outside of lock to avoid deadlock
         if notify_callback:
-            self._state_change_callback(new_state)
+            with self._lock:
+                self._notify_state_change(new_state)
 
     def update_charging(self, actual_charge_rate_kw: float, delta_time_sec: float):
         """
