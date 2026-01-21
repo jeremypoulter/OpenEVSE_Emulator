@@ -6,7 +6,7 @@ Implements the SAE J1772 charging states and manages the charging session.
 
 import threading
 import time
-from typing import Callable
+from typing import Callable, Tuple
 from enum import IntEnum
 
 # Temperature thresholds (in 0.1°C units)
@@ -198,7 +198,7 @@ class EVSEStateMachine:
 
     def set_current_capacity(
         self, amps: int, volatile: bool = False
-    ) -> tuple[bool, int]:
+    ) -> Tuple[bool, int]:
         """Set current capacity, clamped to allowed range.
 
         Returns (ok, amps_set); ok=False when clamped.

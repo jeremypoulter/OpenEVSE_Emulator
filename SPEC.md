@@ -98,9 +98,13 @@ The RAPI protocol uses ASCII commands with the following format:
 | `$FR` | Reset (restart EVSE) | `$OK` |
 | `$F1` | Enable GFCI self-test | `$OK` |
 | `$F0` | Disable GFCI self-test | `$OK` |
-Notes:
-- `$SC` clamps to the allowed range; if clamped it returns `$NK <ampsset>`. The `M` option sets the maximum configured capacity once and locks it; subsequent `$SC M` calls return `$NK <current_max>`.
-- `$GC` reports: minimum allowed, hardware maximum, pilot-advertised, and configured maximum capacities (all decimal amps).
+
+**Notes:**
+
+- `$SC` clamps to the allowed range; if clamped it returns `$NK <ampsset>`. The `M` option sets the
+  maximum configured capacity once and locks it; subsequent `$SC M` calls return `$NK <current_max>`.
+- `$GC` reports: minimum allowed, hardware maximum, pilot-advertised, and configured maximum
+  capacities (all decimal amps).
 
 ### EVSE States
 
@@ -125,9 +129,11 @@ State transitions are triggered by:
 ### VFlags
 
 `vflags` reported by `$GS` (and async `$AT`) combine error flags with EV connection state:
+
 - `0x0100` – EV connected (pilot B/C)
 - `0x0040` – Charging on (pilot C)
-- Low bits – error flags (GFCI trip, stuck relay, no ground, diode check failed, over-temperature, GFI self-test failed)
+- Low bits – error flags (GFCI trip, stuck relay, no ground, diode check failed, over-temperature,
+  GFI self-test failed)
 
 ## EV Simulator
 
