@@ -129,9 +129,10 @@ Connect to the virtual serial port using any terminal emulator or your WiFi firm
 screen /dev/pts/3 115200
 
 # Send RAPI commands
-$GS<Enter>          # Get state
+$GS<Enter>          # Get state (state, elapsed, pilot, vflags)
+$GC<Enter>          # Get capacity limits (min, hw max, pilot, configured)
+$SC 16<Enter>       # Set current to 16A (clamps); use "V" for volatile, "M" to set max once
 $GG<Enter>          # Get current/voltage
-$SC 16<Enter>       # Set current to 16A
 $FE<Enter>          # Enable charging
 ```
 

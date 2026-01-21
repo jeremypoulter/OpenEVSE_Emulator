@@ -72,12 +72,12 @@ The RAPI protocol uses ASCII commands with the following format:
 
 | Command | Description | Response Format |
 | --------- | ------------- | ----------------- |
-| `$GS` | Get EVSE state | `$OK <state> <elapsed_time>` |
+| `$GS` | Get EVSE state | `$OK <state> <elapsed_time> <pilotstate> <vflags>` |
 | `$GG` | Get real-time current and voltage | `$OK <milliamps> <millivolts> <state> <flags>` |
 | `$GP` | Get temperature | `$OK <temp_ds> <temp_mcp> <temp_ds_err> <temp_mcp_err>` |
 | `$GV` | Get version | `$OK <firmware_version> <protocol_version>` |
 | `$GU` | Get energy usage | `$OK <wh> <watt_sec>` |
-| `$GC` | Get current capacity | `$OK <capacity_amps>` |
+| `$GC` | Get current capacity limits | `$OK <minamps> <hmaxamps> <pilotamps> <cmaxamps>` |
 | `$GE` | Get settings | `$OK <current_capacity> <flags>` |
 | `$GA` | Get ammeter settings | `$OK <current_scale> <offset>` |
 | `$GT` | Get time limit | `$OK <time_limit>` |
@@ -88,7 +88,7 @@ The RAPI protocol uses ASCII commands with the following format:
 
 | Command | Description | Response |
 | --------- | ------------- | ---------- |
-| `$SC <amps>` | Set current capacity (6-80A) | `$OK` or `$NK` |
+| `$SC <amps> [V\|M]` | Set current capacity (clamped). `V` = volatile, `M` = set max once | `$OK <ampsset>` or `$NK <ampsset>` |
 | `$SL <level>` | Set service level (1=L1, 2=L2, A=Auto) | `$OK` or `$NK` |
 | `$SE <0\|1>` | Set echo mode | `$OK` |
 | `$ST <minutes>` | Set time limit | `$OK` or `$NK` |
@@ -98,6 +98,9 @@ The RAPI protocol uses ASCII commands with the following format:
 | `$FR` | Reset (restart EVSE) | `$OK` |
 | `$F1` | Enable GFCI self-test | `$OK` |
 | `$F0` | Disable GFCI self-test | `$OK` |
+Notes:
+- `$SC` clamps to the allowed range; if clamped it returns `$NK <ampsset>`. The `M` option sets the maximum configured capacity once and locks it; subsequent `$SC M` calls return `$NK <current_max>`.
+- `$GC` reports: minimum allowed, hardware maximum, pilot-advertised, and configured maximum capacities (all decimal amps).
 
 ### EVSE States
 
@@ -118,6 +121,13 @@ State transitions are triggered by:
 - Vehicle requesting charge
 - Command to enable/disable charging
 - Error conditions
+
+### VFlags
+
+`vflags` reported by `$GS` (and async `$AT`) combine error flags with EV connection state:
+- `0x0100` – EV connected (pilot B/C)
+- `0x0040` – Charging on (pilot C)
+- Low bits – error flags (GFCI trip, stuck relay, no ground, diode check failed, over-temperature, GFI self-test failed)
 
 ## EV Simulator
 
