@@ -411,7 +411,7 @@ class RAPIHandler:
         try:
             first_param = int(params[0])
 
-            if first_param == 0xA5 or first_param == 165:
+            if first_param == 0xA5:  # 0xA5 == 165
                 # Acknowledge missed pulse
                 self.heartbeat_missed = False
                 return RAPI_OK_RESPONSE
