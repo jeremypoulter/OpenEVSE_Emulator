@@ -21,7 +21,7 @@ without requiring physical hardware.
 
 ### Prerequisites
 
-- Python 3.8 or higher (tested on 3.8, 3.9, 3.10, 3.11, 3.12, and 3.13)
+- Python 3.10 or higher (tested on 3.10, 3.11, 3.12, and 3.13)
 - pip (Python package manager)
 - Docker (optional, for containerized deployment)
 

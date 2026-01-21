@@ -395,7 +395,7 @@ Configuration file: `config.json`
 
 ## Dependencies
 
-- Python 3.8+
+- Python 3.10+
 - Flask (web framework)
 - Flask-SocketIO (WebSocket support)
 - pyserial (serial port handling)
