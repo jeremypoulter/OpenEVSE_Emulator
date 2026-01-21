@@ -6,7 +6,7 @@ Implements the SAE J1772 charging states and manages the charging session.
 
 import threading
 import time
-from typing import Optional, Callable
+from typing import Callable
 from enum import IntEnum
 
 # Temperature thresholds (in 0.1°C units)
@@ -196,14 +196,18 @@ class EVSEStateMachine:
                 self._min_capacity_amps, min(self._max_hw_capacity_amps, value)
             )
 
-    def set_current_capacity(self, amps: int, volatile: bool = False) -> tuple[bool, int]:
+    def set_current_capacity(
+        self, amps: int, volatile: bool = False
+    ) -> tuple[bool, int]:
         """Set current capacity, clamped to allowed range.
 
         Returns (ok, amps_set); ok=False when clamped.
         volatile flag is ignored in emulator (no EEPROM), present for spec parity.
         """
         with self._lock:
-            allowed_max = min(self._max_configured_capacity_amps, self._max_hw_capacity_amps)
+            allowed_max = min(
+                self._max_configured_capacity_amps, self._max_hw_capacity_amps
+            )
             amps_set = max(self._min_capacity_amps, min(allowed_max, amps))
             self._current_capacity_amps = amps_set
             return (amps_set == amps), amps_set
@@ -217,7 +221,9 @@ class EVSEStateMachine:
             if self._max_capacity_locked:
                 return False, self._max_configured_capacity_amps
 
-            max_set = max(self._min_capacity_amps, min(self._max_hw_capacity_amps, amps))
+            max_set = max(
+                self._min_capacity_amps, min(self._max_hw_capacity_amps, amps)
+            )
             self._max_configured_capacity_amps = max_set
             self._max_capacity_locked = True
 
@@ -292,11 +298,10 @@ class EVSEStateMachine:
             if not (0 <= y <= 1 and 0 <= x <= 15):
                 return
 
-            row_key = "_lcd_row1" if y == 0 else "_lcd_row2"
             current_row = self._lcd_row1 if y == 0 else self._lcd_row2
 
             # Convert 0x11 or 0xFE to space if present (both are used by different implementations)
-            text_clean = text.replace("\x11", " ").replace("\xFE", " ")
+            text_clean = text.replace("\x11", " ").replace("\xfe", " ")
 
             # Insert text at position x
             row_list = list(current_row)
@@ -538,13 +543,13 @@ class EVSEStateMachine:
         """
         with self._lock:
             vflags = self._error_flags  # Start with error flags
-            
+
             # Add ECVF_EV_CONNECTED if EV is connected (states B or C)
             if self._state in (EVSEState.STATE_B_CONNECTED, EVSEState.STATE_C_CHARGING):
                 vflags |= 0x0100  # ECVF_EV_CONNECTED
-            
+
             # Add ECVF_CHARGING_ON if EV is charging (state C)
             if self._state == EVSEState.STATE_C_CHARGING:
                 vflags |= 0x0040  # ECVF_CHARGING_ON
-            
+
             return vflags

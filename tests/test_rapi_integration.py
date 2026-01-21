@@ -38,8 +38,10 @@ class TestRAPIIntegration:
         evse.firmware_version = "TEST1.0"
         evse.protocol_version = "5.2.1"
         evse.current_capacity_amps = 16
+        evse.get_vflags.return_value = 0x0000  # No errors or special flags
 
         ev = MagicMock()
+        ev.get_pilot_resistance.return_value = "A"  # Default pilot state
 
         return RAPIHandler(evse, ev)
 
@@ -63,8 +65,35 @@ class TestRAPIIntegration:
         assert response.startswith("$OK")
         assert "^" in response
 
-    def test_command_with_invalid_checksum(self, rapi_handler):
-        """Test processing command with invalid checksum rejects it."""
+    def test_command_with_invalid_checksum(self):
+        """Test processing command with invalid checksum in strict mode rejects it."""
+        evse = MagicMock()
+        evse.echo_enabled = False
+        evse.get_status.return_value = {
+            "state": 3,
+            "session_time": 1234,
+            "actual_current": 16.0,
+            "voltage": 240000,
+            "error_flags": 0,
+            "temperature_ds": 25.5,
+            "temperature_mcp": 26.0,
+            "session_energy_wh": 1000,
+            "current_capacity": 16,
+            "gfci_count": 0,
+            "no_ground_count": 0,
+            "stuck_relay_count": 0,
+        }
+        evse.firmware_version = "TEST1.0"
+        evse.protocol_version = "5.2.1"
+        evse.current_capacity_amps = 16
+        evse.get_vflags.return_value = 0x0000
+
+        ev = MagicMock()
+        ev.get_pilot_resistance.return_value = "A"
+
+        # Create handler with strict_checksum=True
+        rapi_handler = RAPIHandler(evse, ev, strict_checksum=True)
+
         cmd = "$GS^99\r"
         response = rapi_handler.process_command(cmd)
         # Should return error response

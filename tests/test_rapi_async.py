@@ -108,7 +108,7 @@ class TestRAPIAsyncNotifications:
 
         # Check vflags (error flags) is hex
         vflags = parts[4]
-        assert len(vflags) == 2
+        assert len(vflags) == 4  # vflags is 4 hex chars (16-bit value)
         assert all(c in "0123456789ABCDEF" for c in vflags)
 
     def test_state_change_callback_triggers_notification(self):

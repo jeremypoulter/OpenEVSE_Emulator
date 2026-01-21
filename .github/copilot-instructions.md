@@ -24,6 +24,29 @@ WiFi firmware without physical hardware.
 - Use docstrings for all classes and public methods (Google style)
 - Prefer f-strings for string formatting
 
+### Quality Assurance
+
+**CRITICAL**: Before committing any code changes, ALWAYS run:
+
+1. **Linting**:
+   - `flake8 src/ tests/` - Must pass with zero errors
+   - `black --check src/ tests/` - All files must be formatted
+   - If black reports formatting issues, run `black src/ tests/` to auto-format
+
+2. **Testing**:
+   - `pytest tests/ -v` - All 126+ tests must pass
+   - Add tests for any new functionality
+   - Update tests if changing existing behavior
+
+3. **Validation Workflow**:
+   - Make code changes
+   - Run `black src/ tests/` to format code
+   - Run `flake8 src/ tests/` to check for errors
+   - Run `pytest tests/ -v` to verify all tests pass
+   - Commit only after all checks pass
+
+**Never commit code that fails linting or breaks tests.**
+
 ### Naming Conventions
 
 - Classes: PascalCase (e.g., `EVSEStateMachine`)

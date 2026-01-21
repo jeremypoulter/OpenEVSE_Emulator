@@ -22,14 +22,16 @@ RAPI_CHECKSUM_PREFIX = "^"  # Checksum prefix
 class RAPIHandler:
     """Handles RAPI protocol commands and responses."""
 
-    def __init__(self, evse: "EVSEStateMachine", ev: "EVSimulator", strict_checksum: bool = False):
+    def __init__(
+        self, evse: "EVSEStateMachine", ev: "EVSimulator", strict_checksum: bool = False
+    ):
         """
         Initialize the RAPI handler.
 
         Args:
             evse: EVSE state machine instance
             ev: EV simulator instance
-            strict_checksum: If True, reject commands with invalid checksums. If False (default), 
+            strict_checksum: If True, reject commands with invalid checksums. If False (default),
                            log warnings but process commands anyway for compatibility.
         """
         self.evse = evse
@@ -45,7 +47,6 @@ class RAPIHandler:
             "GV": self._cmd_get_version,
             "GU": self._cmd_get_energy,
             "GC": self._cmd_get_current_capacity,
-            "SC": self._cmd_set_current_capacity,
             "GE": self._cmd_get_settings,
             "GF": self._cmd_get_fault_counters,
             "GA": self._cmd_get_ammeter_settings,
