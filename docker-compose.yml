@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  openevse-emulator:
+    build: .
+    image: openevse-emulator:latest
+    container_name: openevse-emulator
+    ports:
+      - "8080:8080"   # Web UI and API
+      - "8023:8023"   # TCP serial port
+    volumes:
+      - ./config.json:/app/config.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

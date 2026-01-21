@@ -1,0 +1,410 @@
+/* OpenEVSE Emulator Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+    color: #333;
+}
+
+header {
+    text-align: center;
+    color: white;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+header .subtitle {
+    font-size: 1.2em;
+    opacity: 0.9;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 20px;
+}
+
+.panel {
+    background: white;
+    border-radius: 12px;
+    padding: 25px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+}
+
+.panel:hover {
+    transform: translateY(-5px);
+}
+
+.panel h2 {
+    color: #667eea;
+    margin-bottom: 20px;
+    font-size: 1.5em;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 10px;
+}
+
+/* Dashboard */
+.dashboard {
+    grid-column: 1 / -1;
+}
+
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+/* LCD Display */
+.lcd-display {
+    background: #1a1a1a;
+    border: 3px solid #333;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+    font-family: 'Courier New', monospace;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    display: inline-block;
+}
+
+.lcd-row {
+    background: #2d5016;
+    color: #00ff00;
+    font-size: 18px;
+    font-weight: bold;
+    padding: 8px 10px;
+    margin: 4px 0;
+    letter-spacing: 3px;
+    text-shadow: 0 0 3px rgba(0,255,0,0.5);
+    line-height: 1.4;
+    width: fit-content;
+    white-space: pre;
+    font-family: 'Courier New', 'Courier', monospace;
+}
+
+/* LCD Backlight colors */
+.lcd-backlight-off { background: #222; color: #444; text-shadow: none; }
+.lcd-backlight-red { background: #4a0000; color: #ff6666; text-shadow: 0 0 3px rgba(255,102,102,0.5); }
+.lcd-backlight-green { background: #2d5016; color: #00ff00; text-shadow: 0 0 3px rgba(0,255,0,0.5); }
+.lcd-backlight-yellow { background: #4a4400; color: #ffff66; text-shadow: 0 0 3px rgba(255,255,102,0.5); }
+.lcd-backlight-blue { background: #00264a; color: #6666ff; text-shadow: 0 0 3px rgba(102,102,255,0.5); }
+.lcd-backlight-violet { background: #3a0044; color: #ff66ff; text-shadow: 0 0 3px rgba(255,102,255,0.5); }
+.lcd-backlight-teal { background: #004444; color: #66ffff; text-shadow: 0 0 3px rgba(102,255,255,0.5); }
+.lcd-backlight-white { background: #444; color: #fff; text-shadow: 0 0 3px rgba(255,255,255,0.5); }
+
+.status-item {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.status-label {
+    font-size: 0.9em;
+    color: #666;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.status-value {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #333;
+}
+
+.state-indicator {
+    padding: 10px;
+    border-radius: 8px;
+    color: white;
+}
+
+.state-ready { background: #28a745; }
+.state-connected { background: #ffc107; color: #333; }
+.state-charging { background: #007bff; }
+.state-error { background: #dc3545; }
+.state-sleep { background: #6c757d; }
+
+/* Controls */
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.readonly-note {
+    margin-bottom: 10px;
+    color: #555;
+    font-weight: 600;
+}
+
+.readonly-controls {
+    gap: 12px;
+}
+
+.readonly-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.readonly-label {
+    color: #555;
+    font-weight: 600;
+}
+
+.readonly-value {
+    font-weight: 700;
+    color: #333;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.control-group label {
+    font-weight: 600;
+    color: #555;
+}
+
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 6px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn-primary {
+    background: #007bff;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #0056b3;
+}
+
+.btn-success {
+    background: #28a745;
+    color: white;
+}
+
+.btn-success:hover {
+    background: #218838;
+}
+
+.btn-warning {
+    background: #ffc107;
+    color: #333;
+}
+
+.btn-warning:hover {
+    background: #e0a800;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c82333;
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
+input[type="range"] {
+    width: 100%;
+    height: 8px;
+    border-radius: 5px;
+    background: #ddd;
+    outline: none;
+    -webkit-appearance: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #667eea;
+    cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #667eea;
+    cursor: pointer;
+    border: none;
+}
+
+select {
+    padding: 10px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-size: 1em;
+    background: white;
+    cursor: pointer;
+}
+
+select:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* Error Simulation */
+.error-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.error-counts {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+}
+
+.error-counts h3 {
+    font-size: 1em;
+    margin-bottom: 10px;
+    color: #667eea;
+}
+
+.error-counts div {
+    margin: 5px 0;
+    font-weight: 600;
+}
+
+/* Serial Monitor */
+.serial-monitor {
+    grid-column: 1 / -1;
+}
+
+.serial-output {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+    padding: 15px;
+    border-radius: 8px;
+    height: 300px;
+    overflow-y: auto;
+    margin-bottom: 15px;
+}
+
+.serial-line {
+    margin: 5px 0;
+    padding: 2px 0;
+}
+
+.serial-line.command {
+    color: #4ec9b0;
+}
+
+.serial-line.response {
+    color: #ce9178;
+}
+
+.serial-line.info {
+    color: #608b4e;
+}
+
+.serial-line.error {
+    color: #f48771;
+}
+
+.serial-input-container {
+    display: flex;
+    gap: 10px;
+}
+
+.serial-input-container input {
+    flex: 1;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 1em;
+}
+
+.serial-input-container input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    color: white;
+    margin-top: 30px;
+    padding: 20px;
+}
+
+footer a {
+    color: white;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+footer a:hover {
+    text-decoration: underline;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .container {
+        grid-template-columns: 1fr;
+    }
+    
+    header h1 {
+        font-size: 2em;
+    }
+    
+    .status-grid {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+}

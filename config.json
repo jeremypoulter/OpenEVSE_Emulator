@@ -1,0 +1,27 @@
+{
+  "serial": {
+    "mode": "pty",
+    "tcp_port": 8023,
+    "baudrate": 115200
+  },
+  "evse": {
+    "firmware_version": "8.2.1",
+    "protocol_version": "5.0.1",
+    "default_current": 32,
+    "service_level": "L2",
+    "gfci_self_test": true
+  },
+  "ev": {
+    "battery_capacity_kwh": 75,
+    "max_charge_rate_kw": 7.2
+  },
+  "web": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "simulation": {
+    "update_interval_ms": 1000,
+    "temperature_simulation": true,
+    "realistic_charge_curve": true
+  }
+}
