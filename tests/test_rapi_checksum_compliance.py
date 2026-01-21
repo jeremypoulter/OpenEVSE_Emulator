@@ -146,8 +146,10 @@ class TestRAPIChecksumCompliance:
     def test_max_checksum(self):
         """
         Verify handling of maximum checksum value (0xFF).
+        Firmware initializes with $ XOR second char, so we need specific values.
+        0x24 ($ = 0x24) XOR 0xFF = 0xDB, then XOR 0x24 = 0xFF
         """
-        result = RAPIHandler._calculate_checksum("\xff")  # Single char 0xFF
+        result = RAPIHandler._calculate_checksum("$\xff$")
         assert result == "^FF"
 
     def test_message_end_marker(self):

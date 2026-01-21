@@ -86,18 +86,25 @@ class RAPIHandler:
         """
         Calculate XOR checksum for RAPI protocol.
 
-        Computes XOR of all characters in the data string and returns
-        as a 2-digit hexadecimal string prefixed with '^'.
+        Matches OpenEVSE firmware: initializes checksum with '$' XOR second char,
+        then XORs all remaining characters.
 
         Args:
-            data: String to calculate checksum for
+            data: String to calculate checksum for (should start with '$')
 
         Returns:
             Checksum string (e.g., "^42")
         """
-        checksum = 0
-        for char in data:
+        if not data or len(data) < 2:
+            return f"{RAPI_CHECKSUM_PREFIX}00"
+
+        # Initialize with $ XOR second character (firmware behavior)
+        checksum = ord(data[0]) ^ ord(data[1])
+
+        # XOR all remaining characters
+        for char in data[2:]:
             checksum ^= ord(char)
+
         return f"{RAPI_CHECKSUM_PREFIX}{checksum:02X}"
 
     @staticmethod
@@ -120,7 +127,7 @@ class RAPIHandler:
         Verify checksum in RAPI command.
 
         Args:
-            data: RAPI command string with checksum (including $ prefix)
+            data: RAPI command string with checksum (including $ prefix, with 0xFE bytes intact)
 
         Returns:
             True if checksum is valid, False otherwise
@@ -134,10 +141,13 @@ class RAPIHandler:
         try:
             # Extract data before checksum and the checksum value
             # NOTE: data_part INCLUDES the $ prefix - that's how OpenEVSE calculates it
+            # NOTE: Checksum is calculated on data WITH 0xFE bytes (not converted to spaces)
             data_part = data[:checksum_pos]
             checksum_part = data[checksum_pos + 1 : checksum_pos + 3]
 
             # Calculate what checksum should be (includes $ prefix)
+            # The firmware calculates checksum AFTER replacing spaces with 0xFE,
+            # so we use the data_part as-is (with 0xFE bytes)
             calculated = RAPIHandler._calculate_checksum(data_part)
             expected = f"{RAPI_CHECKSUM_PREFIX}{checksum_part}"
 
@@ -177,6 +187,10 @@ class RAPIHandler:
         checksum_pos = command.rfind(RAPI_CHECKSUM_PREFIX)
         if checksum_pos >= 0:
             command = command[:checksum_pos]
+
+        # Convert 0xFE (magic space char) to regular spaces for parsing
+        # ESP32 firmware uses 0xFE to encode spaces to avoid splitting
+        command = command.replace(chr(0xFE), " ")
 
         # Split command and parameters
         parts = command.split()
@@ -468,7 +482,7 @@ class RAPIHandler:
           y = row (0-1)
           text = text to display at position (x, y)
 
-        OPTIONAL: character 0x11 can be used for spaces (more reliable on HD44780)
+        NOTE: ESP32 WiFi firmware sends spaces as 0xFE to avoid splitting on spaces
 
         Examples:
         $FP 0 0 OpenEVSE        - Set row 0 starting at column 0 to "OpenEVSE"
@@ -483,6 +497,10 @@ class RAPIHandler:
             x = int(params[0])  # Column
             y = int(params[1])  # Row
             text = " ".join(params[2:]) if len(params) > 2 else ""
+
+            # Replace 0xFE (magic space char) with actual spaces
+            # ESP32 WiFi firmware uses 0xFE to encode spaces in LCD text
+            text = text.replace(chr(0xFE), " ")
 
             # Validate row and column
             if not (0 <= y <= 1 and 0 <= x <= 15):

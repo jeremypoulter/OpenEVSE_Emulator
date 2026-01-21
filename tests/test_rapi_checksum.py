@@ -29,14 +29,15 @@ class TestRAPIChecksum:
         assert len(result) == 3
 
     def test_checksum_xor_logic(self):
-        """Test that checksum uses XOR operation."""
-        # XOR of '$' (0x24) = 0x24
-        result = RAPIHandler._calculate_checksum("$")
-        assert result == "^24"
+        """Test that checksum uses XOR operation matching firmware behavior."""
+        # Firmware initializes checksum with $ XOR second character
+        # For "$OK": 0x24 XOR 0x4F = 0x6B, then XOR 0x4B = 0x20
+        result = RAPIHandler._calculate_checksum("$OK")
+        assert result == "^20"
 
-        # XOR of 'OK' (0x4F ^ 0x4B) = 0x04
-        result = RAPIHandler._calculate_checksum("OK")
-        assert result == "^04"
+        # For "$GS": 0x24 XOR 0x47 = 0x63, then XOR 0x53 = 0x30
+        result = RAPIHandler._calculate_checksum("$GS")
+        assert result == "^30"
 
     def test_append_checksum(self):
         """Test appending checksum to response."""

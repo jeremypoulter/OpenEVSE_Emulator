@@ -129,7 +129,8 @@ class VirtualSerialPort:
                     break
 
                 # Decode and add to buffer
-                text = data.decode("utf-8", errors="ignore")
+                # Use latin-1 to preserve all byte values 0-255 (including 0xFE for LCD spaces)
+                text = data.decode("latin-1")
                 buffer += text
 
                 # Process complete commands (ending with \r or \n)
@@ -152,7 +153,7 @@ class VirtualSerialPort:
                     if self.data_callback and command.strip():
                         response = self.data_callback(command)
                         if response:
-                            os.write(self.master_fd, response.encode("utf-8"))
+                            os.write(self.master_fd, response.encode("latin-1"))
 
             except Exception as e:
                 if self.running:
@@ -186,7 +187,8 @@ class VirtualSerialPort:
                     break
 
                 # Decode and add to buffer
-                text = data.decode("utf-8", errors="ignore")
+                # Use latin-1 to preserve all byte values 0-255 (including 0xFE for LCD spaces)
+                text = data.decode("latin-1")
                 buffer += text
 
                 # Process complete commands (ending with \r or \n)
@@ -209,7 +211,7 @@ class VirtualSerialPort:
                     if self.data_callback and command.strip():
                         response = self.data_callback(command)
                         if response:
-                            self.client_socket.send(response.encode("utf-8"))
+                            self.client_socket.send(response.encode("latin-1"))
 
             except Exception as e:
                 if self.running:
@@ -262,7 +264,7 @@ class VirtualSerialPort:
             return
 
         try:
-            data_bytes = data.encode("utf-8")
+            data_bytes = data.encode("latin-1")
 
             if self.mode == "pty" and self.master_fd is not None:
                 os.write(self.master_fd, data_bytes)
