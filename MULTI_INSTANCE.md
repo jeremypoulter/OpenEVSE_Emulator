@@ -314,7 +314,7 @@ increase reconnection retries in the emulator configuration.
 
 All existing configurations continue to work unchanged:
 
-- **No CLI args**: Uses default `/tmp/rapi_pty` and auto-generated PTY paths
+- **No CLI args**: Uses auto-generated PTY device paths (no `/tmp/rapi_pty` symlink unless configured)
 - **Existing config.json**: New fields are optional; defaults are applied automatically
 - **Single instance**: Works exactly as before without any changes
 
