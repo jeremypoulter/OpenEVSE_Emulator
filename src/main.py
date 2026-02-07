@@ -82,13 +82,11 @@ _CLI_OVERRIDE_PATHS = {
     "ev_max_charge_rate_kw": "ev.max_charge_rate_kw",
     "web_host": "web.host",
     "web_port": "web.port",
-    "simulation_update_interval_ms": "simulation.update_interval_ms",
-    "simulation_temperature_simulation": "simulation.temperature_simulation",
-    "simulation_realistic_charge_curve": "simulation.realistic_charge_curve",
+    "simulation_update_interval_ms": "simulation.update_interval_ms"
 }
 
 
-def _parse_args():
+def _parse_args() -> argparse.Namespace:
     """Parse command-line arguments. Options not passed have default=SUPPRESS."""
     p = argparse.ArgumentParser(
         description="OpenEVSE Emulator - override config via command line"
@@ -103,14 +101,14 @@ def _parse_args():
         dest="serial_mode",
         type=str,
         default=argparse.SUPPRESS,
-        help="Virtual serial mode: pty or socket",
+        help="Virtual serial mode: pty or tcp (default: pty)",
     )
     p.add_argument(
         "--serial-tcp-port",
         dest="serial_tcp_port",
         type=int,
         default=argparse.SUPPRESS,
-        help="TCP port for socket serial mode (default: 8023)",
+        help="TCP port for tcp serial mode (default: 8023)",
     )
     p.add_argument(
         "--serial-baudrate",
@@ -143,9 +141,9 @@ def _parse_args():
     p.add_argument(
         "--evse-service-level",
         dest="evse_service_level",
-        type=str,
+        choices=["L1", "L2", "Auto"],
         default=argparse.SUPPRESS,
-        help="EVSE service level: L1 or L2",
+        help="EVSE service level: L1, L2, or Auto",
     )
     p.add_argument(
         "--evse-gfci-self-test",
