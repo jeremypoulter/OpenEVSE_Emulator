@@ -1,11 +1,13 @@
 # Multi-Instance Support
 
-This guide explains how to run multiple paired instances of the OpenEVSE emulator and native firmware for testing purposes.
+This guide explains how to run multiple paired instances of the OpenEVSE
+emulator and native firmware for testing purposes.
 
 ## Overview
 
-The emulator and native firmware now support explicit configuration of serial port paths, allowing multiple instances to
-run simultaneously without conflicts. This is useful for:
+The emulator and native firmware now support explicit configuration of serial
+port paths, allowing multiple instances to run simultaneously without conflicts.
+This is useful for:
 
 - Testing multiple charging stations in parallel
 - Load sharing development and testing
@@ -95,11 +97,13 @@ export RAPI_SERIAL_PORT=/tmp/rapi_pty_0
 .pio/build/native/program --rapi-serial /tmp/rapi_pty_0 --set-config www_http_port=8001
 ```
 
-**Note:** The `--set-config` option allows you to override any configuration value at runtime. This is essential for running multiple native instances, as each needs a unique HTTP port.
+**Note:** The `--set-config` option allows you to override any configuration value at runtime. This is essential for
+running multiple native instances, as each needs a unique HTTP port.
 
 ### Default Behavior
 
 If neither environment variable nor CLI argument is provided:
+
 - RAPI serial path defaults to `/tmp/rapi_pty`
 - HTTP port defaults to `8000`
 
@@ -261,8 +265,9 @@ Both the emulator and native firmware now handle disconnections gracefully:
 
 **Symptom**: `Warning: Could not create symlink /tmp/rapi_pty_0: File exists`
 
-**Solution**: The emulator automatically removes stale symlinks. If you see this warning but the emulator starts
-successfully, everything is working. If it fails, manually remove the symlink:
+**Solution**: The emulator automatically removes stale symlinks. If you see
+this warning but the emulator starts successfully, everything is working. If it
+fails, manually remove the symlink:
 
 ```bash
 rm /tmp/rapi_pty_0
@@ -302,8 +307,8 @@ python src/main.py --web-port 8081
 
 **Symptom**: Native build exits with PTY open error
 
-**Solution**: Ensure the emulator is started first (it creates the PTY), or increase reconnection retries in the emulator
-configuration.
+**Solution**: Ensure the emulator is started first (it creates the PTY), or
+increase reconnection retries in the emulator configuration.
 
 ## Backward Compatibility
 
