@@ -427,3 +427,120 @@ class TestIntegrationScenarios:
         status = api_client.get("/api/evse/status")
         data = json.loads(status.data)
         assert data["error_flags"] == 0
+
+
+class TestLCDEndpoints:
+    """Test LCD display endpoints."""
+
+    def test_get_lcd_display(self, api_client):
+        """Test getting LCD display content."""
+        response = api_client.get("/api/evse/lcd")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert "row1" in data
+        assert "row2" in data
+        assert "backlight_color" in data
+        # LCD returns actual content which may be less than 16 chars
+        assert len(data["row1"]) <= 16
+        assert len(data["row2"]) <= 16
+
+    def test_set_lcd_display(self, api_client):
+        """Test setting LCD display content."""
+        response = api_client.post(
+            "/api/evse/lcd",
+            data=json.dumps({"row1": "OpenEVSE", "row2": "Ready"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        # Verify content was set
+        lcd_response = api_client.get("/api/evse/lcd")
+        data = json.loads(lcd_response.data)
+        assert "OpenEVSE" in data["row1"]
+        assert "Ready" in data["row2"]
+
+    def test_set_lcd_display_partial(self, api_client):
+        """Test setting only one row of LCD display."""
+        # Set only row1
+        response = api_client.post(
+            "/api/evse/lcd",
+            data=json.dumps({"row1": "Line 1"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        # Set only row2
+        response = api_client.post(
+            "/api/evse/lcd",
+            data=json.dumps({"row2": "Line 2"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+    def test_get_lcd_backlight(self, api_client):
+        """Test getting LCD backlight color."""
+        response = api_client.get("/api/evse/lcd/backlight")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert "backlight_color" in data
+        assert 0 <= data["backlight_color"] <= 7
+
+    def test_set_lcd_backlight(self, api_client):
+        """Test setting LCD backlight color."""
+        response = api_client.post(
+            "/api/evse/lcd/backlight",
+            data=json.dumps({"color": 3}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        # Verify color was set
+        lcd_response = api_client.get("/api/evse/lcd/backlight")
+        data = json.loads(lcd_response.data)
+        assert data["backlight_color"] == 3
+
+    def test_set_lcd_backlight_invalid_color(self, api_client):
+        """Test setting invalid backlight color."""
+        # Too high
+        response = api_client.post(
+            "/api/evse/lcd/backlight",
+            data=json.dumps({"color": 10}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+        # Negative
+        response = api_client.post(
+            "/api/evse/lcd/backlight",
+            data=json.dumps({"color": -1}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+        # Missing parameter
+        response = api_client.post(
+            "/api/evse/lcd/backlight",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+
+class TestEnableErrorHandling:
+    """Test enable endpoint error handling."""
+
+    def test_enable_with_errors_fails(self, api_client):
+        """Test that enabling fails when errors are present."""
+        # Trigger an error first
+        api_client.post(
+            "/api/errors/trigger",
+            data=json.dumps({"error": "gfci"}),
+            content_type="application/json",
+        )
+
+        # Try to enable (should fail)
+        response = api_client.post("/api/evse/enable")
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "error" in data
+        assert data["success"] is False
