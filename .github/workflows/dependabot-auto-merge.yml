@@ -1,0 +1,96 @@
+name: Dependabot Auto-Merge
+
+# This workflow automatically approves and enables auto-merge for Dependabot PRs
+# that are minor or patch version updates (excluding Docker base image updates).
+#
+# PREREQUISITES:
+# 1. Branch protection rules must be enabled with required status checks configured
+#    (e.g., test, lint, markdown-lint from tests.yml workflow)
+# 2. A Personal Access Token (PAT) with 'repo' permissions is recommended as a
+#    repository secret named 'DEPENDABOT_PAT' for auto-approval to work
+#    (GitHub's GITHUB_TOKEN cannot approve its own PRs)
+#    - Without PAT: Auto-merge is enabled but requires manual approval
+#    - With PAT: Fully automated approval and merge
+#
+# SECURITY:
+# - Uses pull_request_target which runs in the base branch context
+# - Never checks out or executes code from the PR itself
+# - Verifies PR is from dependabot[bot] AND from the same repository
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot:
+    runs-on: ubuntu-latest
+    # Only run for Dependabot PRs from the same repository (not forks)
+    if: |
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Auto-approve for minor and patch updates (pip and github-actions only)
+        # Note: Requires DEPENDABOT_PAT secret for approval to work (GITHUB_TOKEN cannot self-approve)
+        # If PAT is not configured, this step will fail gracefully and auto-merge will still work
+        # but will require manual approval
+        id: auto-approve
+        if: |
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+           steps.metadata.outputs.update-type == 'version-update:semver-patch') &&
+          (steps.metadata.outputs.package-ecosystem == 'pip' ||
+           steps.metadata.outputs.package-ecosystem == 'github_actions')
+        continue-on-error: true
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.DEPENDABOT_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Notify if manual approval needed
+        if: |
+          steps.auto-approve.outcome == 'failure' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+           steps.metadata.outputs.update-type == 'version-update:semver-patch') &&
+          (steps.metadata.outputs.package-ecosystem == 'pip' ||
+           steps.metadata.outputs.package-ecosystem == 'github_actions')
+        run: |
+          gh pr comment "$PR_URL" --body "✅ Auto-merge has been enabled for this PR. Manual approval is required before the PR can be merged (configure DEPENDABOT_PAT secret for automatic approval)."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for minor and patch updates (pip and github-actions only)
+        if: |
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+           steps.metadata.outputs.update-type == 'version-update:semver-patch') &&
+          (steps.metadata.outputs.package-ecosystem == 'pip' ||
+           steps.metadata.outputs.package-ecosystem == 'github_actions')
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on major updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        run: |
+          gh pr comment "$PR_URL" --body "⚠️ This is a **major version update** and requires manual review before merging."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on Docker updates
+        if: steps.metadata.outputs.package-ecosystem == 'docker'
+        run: |
+          gh pr comment "$PR_URL" --body "🐳 This is a **Docker base image update** and requires manual review and testing before merging, as it may affect the runtime environment."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
