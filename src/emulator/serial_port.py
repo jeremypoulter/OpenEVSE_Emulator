@@ -119,6 +119,7 @@ class VirtualSerialPort:
             print(f"Using auto-generated path instead: {self.slave_name}")
             self.pty_path = None
             self.pty_symlink = None
+
     def _configure_pty_raw_mode(self) -> None:
         """Configure PTY to raw mode to prevent \\r -> \\n translation."""
         try:
