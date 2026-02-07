@@ -117,7 +117,8 @@ class VirtualSerialPort:
         except Exception as e:
             print(f"Warning: Could not create symlink {self.pty_path}: {e}")
             print(f"Using auto-generated path instead: {self.slave_name}")
-
+            self.pty_path = None
+            self.pty_symlink = None
     def _configure_pty_raw_mode(self) -> None:
         """Configure PTY to raw mode to prevent \\r -> \\n translation."""
         try:
@@ -231,7 +232,7 @@ class VirtualSerialPort:
         """Accept loop for TCP mode with reconnection support."""
         backoff = self.reconnect_backoff_ms / 1000.0
         max_backoff = 30.0  # Cap backoff at 30 seconds
-        retry_start_time = time.time()
+        reconnect_attempt_start_time: Optional[float] = None
 
         while self.running and self.tcp_socket:
             try:
@@ -239,22 +240,15 @@ class VirtualSerialPort:
                 self.client_socket, addr = self.tcp_socket.accept()
                 print(f"Client connected from {addr}")
 
-                # Reset backoff and retry timer on successful connection
+                # Reset backoff and reconnection timer on successful connection
                 backoff = self.reconnect_backoff_ms / 1000.0
-                retry_start_time = time.time()
+                reconnect_attempt_start_time = None
 
                 self._tcp_client_loop()
 
-                # Client disconnected, check if we should reconnect
+                # Client disconnected, start tracking reconnection time
                 if self.running:
-                    elapsed = time.time() - retry_start_time
-                    if (
-                        self.reconnect_timeout_sec > 0
-                        and elapsed > self.reconnect_timeout_sec
-                    ):
-                        print(f"Reconnection timeout after {elapsed:.1f}s, stopping")
-                        break
-
+                    reconnect_attempt_start_time = time.time()
                     print(f"Waiting {backoff:.1f}s before accepting new connection...")
                     time.sleep(backoff)
                     backoff = min(backoff * 2, max_backoff)  # Exponential backoff
@@ -262,8 +256,12 @@ class VirtualSerialPort:
             except Exception as e:
                 if self.running:
                     print(f"TCP accept error: {e}")
+                    # Start reconnection timer on first error
+                    if reconnect_attempt_start_time is None:
+                        reconnect_attempt_start_time = time.time()
+                    # Check if reconnection timeout exceeded
                     if self.reconnect_timeout_sec > 0:
-                        elapsed = time.time() - retry_start_time
+                        elapsed = time.time() - reconnect_attempt_start_time
                         if elapsed > self.reconnect_timeout_sec:
                             print(
                                 f"Reconnection timeout after {elapsed:.1f}s, stopping"

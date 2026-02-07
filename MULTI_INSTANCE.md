@@ -226,7 +226,8 @@ services:
       - emulator_1
 ```
 
-**Note:** Each native instance requires a unique HTTP port via `--set-config www_http_port=XXXX` to avoid port conflicts.
+**Note:** Each native instance requires a unique HTTP port via `--set-config www_http_port=XXXX` to avoid port
+conflicts.
 
 ### Example 4: TCP Mode (No PTY Required)
 

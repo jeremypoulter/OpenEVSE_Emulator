@@ -260,12 +260,20 @@ def apply_env_overrides(config: dict) -> None:
     for env_var, dot_path in _ENV_OVERRIDE_PATHS.items():
         value = os.environ.get(env_var)
         if value is not None:
-            # Type conversion based on explicit type mapping
-            if dot_path in _ENV_OVERRIDE_TYPES:
+            # Type conversion based on explicit type mapping.
+            # Support multiple key styles (full dot path, last segment, env var name)
+            # to avoid mismatches between mapping keys and dot paths.
+            converter = None
+            last_segment = dot_path.split(".")[-1]
+            for key in (dot_path, last_segment, env_var):
+                if key in _ENV_OVERRIDE_TYPES:
+                    converter = _ENV_OVERRIDE_TYPES[key]
+                    break
+            if converter is not None:
                 try:
-                    value = _ENV_OVERRIDE_TYPES[dot_path](value)
+                    value = converter(value)
                 except (ValueError, TypeError):
-                    type_name = _ENV_OVERRIDE_TYPES[dot_path].__name__
+                    type_name = getattr(converter, "__name__", type(converter).__name__)
                     print(
                         f"Warning: Invalid {type_name} value for {env_var}={value}, "
                         "skipping"
