@@ -42,16 +42,18 @@ updates:
       - "jeremypoulter"
 
   # Docker base images
+  # Note: Docker updates are NOT auto-merged due to potential runtime environment changes
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     labels:
       - "dependencies"
       - "docker"
+      - "manual-review"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"

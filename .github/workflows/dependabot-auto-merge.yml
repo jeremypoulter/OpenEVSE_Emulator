@@ -1,5 +1,20 @@
 name: Dependabot Auto-Merge
 
+# This workflow automatically approves and enables auto-merge for Dependabot PRs
+# that are minor or patch version updates (excluding Docker base image updates).
+#
+# PREREQUISITES:
+# 1. Branch protection rules must be enabled with required status checks configured
+#    (e.g., test, lint, markdown-lint from tests.yml workflow)
+# 2. A Personal Access Token (PAT) with 'repo' permissions must be added as a
+#    repository secret named 'DEPENDABOT_PAT' for auto-approval to work
+#    (GitHub's GITHUB_TOKEN cannot approve its own PRs)
+#
+# SECURITY:
+# - Uses pull_request_target which runs in the base branch context
+# - Never checks out or executes code from the PR itself
+# - Verifies PR is from dependabot[bot] AND from the same repository
+
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
@@ -11,8 +26,10 @@ permissions:
 jobs:
   dependabot:
     runs-on: ubuntu-latest
-    # Only run for Dependabot PRs
-    if: github.actor == 'dependabot[bot]'
+    # Only run for Dependabot PRs from the same repository (not forks)
+    if: |
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
@@ -20,19 +37,25 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Auto-approve for minor and patch updates
+      - name: Auto-approve for minor and patch updates (pip and github-actions only)
         if: |
-          steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-patch'
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+           steps.metadata.outputs.update-type == 'version-update:semver-patch') &&
+          (steps.metadata.outputs.package-ecosystem == 'pip' ||
+           steps.metadata.outputs.package-ecosystem == 'github_actions')
         run: gh pr review --approve "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use PAT instead of GITHUB_TOKEN to allow self-approval
+          # If DEPENDABOT_PAT is not configured, this step will fail but won't block the workflow
+          GITHUB_TOKEN: ${{ secrets.DEPENDABOT_PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge for minor and patch updates
+      - name: Enable auto-merge for minor and patch updates (pip and github-actions only)
         if: |
-          steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-patch'
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+           steps.metadata.outputs.update-type == 'version-update:semver-patch') &&
+          (steps.metadata.outputs.package-ecosystem == 'pip' ||
+           steps.metadata.outputs.package-ecosystem == 'github_actions')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -42,6 +65,14 @@ jobs:
         if: steps.metadata.outputs.update-type == 'version-update:semver-major'
         run: |
           gh pr comment "$PR_URL" --body "⚠️ This is a **major version update** and requires manual review before merging."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on Docker updates
+        if: steps.metadata.outputs.package-ecosystem == 'docker'
+        run: |
+          gh pr comment "$PR_URL" --body "🐳 This is a **Docker base image update** and requires manual review and testing before merging, as it may affect the runtime environment."
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
