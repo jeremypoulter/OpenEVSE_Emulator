@@ -82,7 +82,7 @@ _CLI_OVERRIDE_PATHS = {
     "ev_max_charge_rate_kw": "ev.max_charge_rate_kw",
     "web_host": "web.host",
     "web_port": "web.port",
-    "simulation_update_interval_ms": "simulation.update_interval_ms"
+    "simulation_update_interval_ms": "simulation.update_interval_ms",
 }
 
 
