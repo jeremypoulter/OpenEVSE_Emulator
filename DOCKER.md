@@ -269,7 +269,8 @@ Ensure port 8023 is exposed and TCP mode is configured in `config.json`.
 
 ### GitHub Actions
 
-This repository includes an automated workflow that builds and publishes Docker images to GitHub Container Registry (ghcr.io). The workflow is triggered on:
+This repository includes an automated workflow that builds and publishes Docker images to
+GitHub Container Registry (ghcr.io). The workflow is triggered on:
 
 - Push to `main` branch (tags as `latest`)
 - Push to `develop` branch (tags as `develop`)

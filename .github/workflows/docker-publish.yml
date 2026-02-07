@@ -54,8 +54,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             # Tag with major on tags (e.g., v1.0.0 -> 1)
             type=semver,pattern={{major}}
-            # Tag with SHA for all events
-            type=sha,prefix={{branch}}-
+            # Tag with SHA for pull requests
+            type=sha,enable=${{ github.event_name == 'pull_request' }}
           labels: |
             org.opencontainers.image.title=OpenEVSE Emulator
             org.opencontainers.image.description=Software emulator for OpenEVSE electric vehicle charging station
