@@ -42,7 +42,7 @@ Settings are applied in this order (later overrides earlier):
 - **reconnect_timeout_sec**: Maximum seconds to retry connections (0 = infinite retry)
 - **reconnect_backoff_ms**: Initial backoff between connection retries in milliseconds (doubles on each retry)
 
-### Command-Line Arguments
+### Emulator Command-Line Arguments
 
 ```bash
 # Specify explicit PTY path
@@ -55,7 +55,7 @@ python src/main.py --serial-tcp-port 8024 --web-port 8081
 python src/main.py --serial-reconnect-timeout 120 --serial-reconnect-backoff 2000
 ```
 
-### Environment Variables
+### Emulator Environment Variables
 
 ```bash
 # Serial configuration
@@ -74,7 +74,7 @@ python src/main.py
 
 ## Native Firmware Configuration
 
-### Environment Variable
+### Firmware Environment Variable
 
 The native (EPOXY_DUINO) build now checks the `RAPI_SERIAL_PORT` environment variable:
 
@@ -84,7 +84,7 @@ export RAPI_SERIAL_PORT=/tmp/rapi_pty_0
 .pio/build/native/program
 ```
 
-### Command-Line Arguments
+### Firmware Command-Line Arguments
 
 ```bash
 # Override RAPI serial path via CLI (takes precedence over environment variable)
