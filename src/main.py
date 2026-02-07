@@ -253,11 +253,8 @@ def apply_env_overrides(config: dict) -> None:
         value = os.environ.get(env_var)
         if value is not None:
             # Type conversion based on expected type
-            if (
-                dot_path.endswith("_port")
-                or dot_path.endswith("timeout_sec")
-                or dot_path.endswith("backoff_ms")
-            ):
+            last_segment = dot_path.split(".")[-1]
+            if last_segment in ("port", "tcp_port", "timeout_sec", "backoff_ms"):
                 try:
                     value = int(value)
                 except ValueError:
