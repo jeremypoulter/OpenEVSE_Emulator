@@ -10,26 +10,54 @@ import socket
 import threading
 import sys
 import termios
+import time
 from typing import Optional, Callable
 
 
 class VirtualSerialPort:
     """Virtual serial port using PTY or TCP socket."""
 
-    def __init__(self, mode: str = "pty", tcp_port: int = 8023):
+    def __init__(
+        self,
+        mode: str = "pty",
+        tcp_port: int = 8023,
+        pty_path: Optional[str] = None,
+        reconnect_timeout_sec: int = 60,
+        reconnect_backoff_ms: int = 1000,
+    ):
         """
         Initialize virtual serial port.
 
         Args:
             mode: "pty" for pseudo-terminal or "tcp" for TCP socket
             tcp_port: Port number for TCP mode
+            pty_path: Optional explicit PTY path (e.g. /tmp/rapi_pty_0).
+                     If None, path is auto-generated. A symlink is created.
+            reconnect_timeout_sec: Max seconds to retry connections (0=infinite)
+            reconnect_backoff_ms: Initial backoff between retries in milliseconds
+
+        Raises:
+            ValueError: If reconnect_timeout_sec or reconnect_backoff_ms is negative
         """
+        if reconnect_timeout_sec < 0:
+            raise ValueError(
+                f"reconnect_timeout_sec must be >= 0, got {reconnect_timeout_sec}"
+            )
+        if reconnect_backoff_ms < 0:
+            raise ValueError(
+                f"reconnect_backoff_ms must be >= 0, got {reconnect_backoff_ms}"
+            )
+
         self.mode = mode
         self.tcp_port = tcp_port
+        self.pty_path = pty_path
+        self.reconnect_timeout_sec = reconnect_timeout_sec
+        self.reconnect_backoff_ms = reconnect_backoff_ms
 
         self.master_fd: Optional[int] = None
         self.slave_fd: Optional[int] = None
         self.slave_name: Optional[str] = None
+        self.pty_symlink: Optional[str] = None  # Track symlink we created
         self.tcp_socket: Optional[socket.socket] = None
         self.client_socket: Optional[socket.socket] = None
 
@@ -57,6 +85,56 @@ class VirtualSerialPort:
             print(f"Unknown mode: {self.mode}")
             return False
 
+    def _setup_pty_symlink(self) -> None:
+        """Set up PTY symlink if requested."""
+        if not self.pty_path:
+            return
+
+        # Remove existing symlink if present. Do not remove non-symlink files.
+        if os.path.islink(self.pty_path):
+            try:
+                os.unlink(self.pty_path)
+            except Exception as e:
+                print(
+                    f"Warning: Could not remove existing symlink "
+                    f"{self.pty_path}: {e}"
+                )
+        elif os.path.exists(self.pty_path):
+            # Existing non-symlink at requested path; refuse to overwrite.
+            print(
+                "Warning: Requested PTY path exists and is not a symlink, "
+                f"refusing to overwrite: {self.pty_path}"
+            )
+            print(f"Using auto-generated path instead: {self.slave_name}")
+            self.pty_path = None
+            self.pty_symlink = None
+            return
+
+        try:
+            os.symlink(self.slave_name, self.pty_path)
+            self.pty_symlink = self.pty_path
+            print(f"Created symlink: {self.pty_path} -> {self.slave_name}")
+        except Exception as e:
+            print(f"Warning: Could not create symlink {self.pty_path}: {e}")
+            print(f"Using auto-generated path instead: {self.slave_name}")
+            self.pty_path = None
+            self.pty_symlink = None
+
+    def _configure_pty_raw_mode(self) -> None:
+        """Configure PTY to raw mode to prevent \\r -> \\n translation."""
+        try:
+            attrs = termios.tcgetattr(self.slave_fd)
+            attrs[0] &= ~(
+                termios.ICRNL | termios.INLCR
+            )  # No CR/NL translation on input
+            attrs[1] &= ~(
+                termios.OCRNL | termios.ONLCR
+            )  # No CR/NL translation on output
+            attrs[3] &= ~(termios.ECHO | termios.ICANON)  # No echo, no canonical mode
+            termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
+        except Exception as e:
+            print(f"Warning: Could not set PTY to raw mode: {e}")
+
     def _start_pty(self) -> bool:
         """Start PTY mode."""
         if sys.platform == "win32":
@@ -67,25 +145,16 @@ class VirtualSerialPort:
             self.master_fd, self.slave_fd = pty.openpty()
             self.slave_name = os.ttyname(self.slave_fd)
 
+            # Set up symlink if requested
+            self._setup_pty_symlink()
+
             # Configure PTY to raw mode to prevent \r -> \n translation
             # This ensures RAPI protocol line endings (\r) are preserved
-            try:
-                attrs = termios.tcgetattr(self.slave_fd)
-                attrs[0] &= ~(
-                    termios.ICRNL | termios.INLCR
-                )  # No CR/NL translation on input
-                attrs[1] &= ~(
-                    termios.OCRNL | termios.ONLCR
-                )  # No CR/NL translation on output
-                attrs[3] &= ~(
-                    termios.ECHO | termios.ICANON
-                )  # No echo, no canonical mode
-                termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
-            except Exception as e:
-                print(f"Warning: Could not set PTY to raw mode: {e}")
+            self._configure_pty_raw_mode()
 
-            print(f"Virtual serial port created: {self.slave_name}")
-            print(f"Connect using: screen {self.slave_name} 115200")
+            display_path = self.pty_symlink if self.pty_symlink else self.slave_name
+            print(f"Virtual serial port created: {display_path}")
+            print(f"Connect using: screen {display_path} 115200")
 
             self.running = True
             self.read_thread = threading.Thread(target=self._pty_read_loop, daemon=True)
@@ -161,19 +230,48 @@ class VirtualSerialPort:
                 break
 
     def _tcp_accept_loop(self):
-        """Accept loop for TCP mode."""
+        """Accept loop for TCP mode with reconnection support."""
+        backoff = self.reconnect_backoff_ms / 1000.0
+        max_backoff = 30.0  # Cap backoff at 30 seconds
+        reconnect_attempt_start_time: Optional[float] = None
+
         while self.running and self.tcp_socket:
             try:
                 print("Waiting for client connection...")
                 self.client_socket, addr = self.tcp_socket.accept()
                 print(f"Client connected from {addr}")
 
+                # Reset backoff and reconnection timer on successful connection
+                backoff = self.reconnect_backoff_ms / 1000.0
+                reconnect_attempt_start_time = None
+
                 self._tcp_client_loop()
+
+                # Client disconnected, start tracking reconnection time
+                if self.running:
+                    reconnect_attempt_start_time = time.time()
+                    print(f"Waiting {backoff:.1f}s before accepting new connection...")
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, max_backoff)  # Exponential backoff
 
             except Exception as e:
                 if self.running:
                     print(f"TCP accept error: {e}")
-                break
+                    # Start reconnection timer on first error
+                    if reconnect_attempt_start_time is None:
+                        reconnect_attempt_start_time = time.time()
+                    # Check if reconnection timeout exceeded
+                    if self.reconnect_timeout_sec > 0:
+                        elapsed = time.time() - reconnect_attempt_start_time
+                        if elapsed > self.reconnect_timeout_sec:
+                            print(
+                                f"Reconnection timeout after {elapsed:.1f}s, stopping"
+                            )
+                            break
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, max_backoff)
+                else:
+                    break
 
     def _tcp_client_loop(self):
         """Handle TCP client connection."""
@@ -241,6 +339,15 @@ class VirtualSerialPort:
         if self.slave_fd is not None:
             os.close(self.slave_fd)
             self.slave_fd = None
+
+        # Clean up symlink if we created one
+        if self.pty_symlink and os.path.islink(self.pty_symlink):
+            try:
+                os.unlink(self.pty_symlink)
+                print(f"Removed symlink: {self.pty_symlink}")
+            except Exception as e:
+                print(f"Warning: Could not remove symlink {self.pty_symlink}: {e}")
+            self.pty_symlink = None
 
         if self.read_thread:
             self.read_thread.join(timeout=1.0)
