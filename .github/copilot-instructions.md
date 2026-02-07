@@ -24,6 +24,14 @@ WiFi firmware without physical hardware.
 - Use docstrings for all classes and public methods (Google style)
 - Prefer f-strings for string formatting
 
+### Prerequisites for Linting
+
+Install development dependencies:
+```bash
+pip install -r requirements.txt
+npm install -g markdownlint-cli
+```
+
 ### Quality Assurance
 
 **CRITICAL**: Before committing any code changes, ALWAYS run:
@@ -32,6 +40,7 @@ WiFi firmware without physical hardware.
    - `flake8 src/ tests/` - Must pass with zero errors
    - `black --check src/ tests/` - All files must be formatted
    - If black reports formatting issues, run `black src/ tests/` to auto-format
+   - `markdownlint '**/*.md'` - Markdown files must follow style guide
 
 2. **Testing**:
    - `pytest tests/ -v` - All 126+ tests must pass
@@ -42,6 +51,7 @@ WiFi firmware without physical hardware.
    - Make code changes
    - Run `black src/ tests/` to format code
    - Run `flake8 src/ tests/` to check for errors
+   - Run `markdownlint '**/*.md'` to check markdown files
    - Run `pytest tests/ -v` to verify all tests pass
    - Commit only after all checks pass
 
