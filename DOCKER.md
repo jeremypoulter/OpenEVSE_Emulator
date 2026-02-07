@@ -6,7 +6,13 @@ This guide covers running the OpenEVSE Emulator using Docker and VSCode Devconta
 
 ### Quick Start
 
-Build and run with a single command:
+**Using Pre-built Image from GitHub Packages (Recommended):**
+
+```bash
+docker run -p 8080:8080 -p 8023:8023 ghcr.io/jeremypoulter/openevse_emulator:latest
+```
+
+**Building from Source:**
 
 ```bash
 docker build -t openevse-emulator .
@@ -14,6 +20,14 @@ docker run -p 8080:8080 -p 8023:8023 openevse-emulator
 ```
 
 Access the emulator at http://localhost:8080
+
+### Available Images
+
+Pre-built images are available on GitHub Container Registry:
+
+- **Latest stable**: `ghcr.io/jeremypoulter/openevse_emulator:latest`
+- **Development**: `ghcr.io/jeremypoulter/openevse_emulator:develop`
+- **Specific version**: `ghcr.io/jeremypoulter/openevse_emulator:1.0.0`
 
 ### Using Docker Compose
 
@@ -33,6 +47,25 @@ docker-compose logs -f
 docker-compose down
 ```
 
+To use the pre-built image with Docker Compose, update your `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  openevse-emulator:
+    image: ghcr.io/jeremypoulter/openevse_emulator:latest
+    container_name: openevse-emulator
+    ports:
+      - "8080:8080"
+      - "8023:8023"
+    volumes:
+      - ./config.json:/app/config.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+```
+
 ### Custom Configuration
 
 Mount a custom configuration file:
@@ -40,7 +73,7 @@ Mount a custom configuration file:
 ```bash
 docker run -p 8080:8080 -p 8023:8023 \
   -v $(pwd)/my-config.json:/app/config.json:ro \
-  openevse-emulator
+  ghcr.io/jeremypoulter/openevse_emulator:latest
 ```
 
 ### Environment Variables
@@ -236,7 +269,31 @@ Ensure port 8023 is exposed and TCP mode is configured in `config.json`.
 
 ### GitHub Actions
 
-Example workflow:
+This repository includes an automated workflow that builds and publishes Docker images to
+GitHub Container Registry (ghcr.io). The workflow is triggered on:
+
+- Push to `main` branch (tags as `latest`)
+- Push to `develop` branch (tags as `develop`)
+- Version tags (e.g., `v1.0.0`)
+
+The published images are available at:
+
+```bash
+# Latest stable release
+ghcr.io/jeremypoulter/openevse_emulator:latest
+
+# Development version
+ghcr.io/jeremypoulter/openevse_emulator:develop
+
+# Specific version
+ghcr.io/jeremypoulter/openevse_emulator:1.0.0
+```
+
+Multi-platform images are built for both `linux/amd64` and `linux/arm64` architectures.
+
+### Custom Workflow Example
+
+If you want to build and test in your own workflow:
 
 ```yaml
 name: Docker Build
@@ -260,7 +317,7 @@ jobs:
 
 ### Docker Hub
 
-Push to Docker Hub:
+If you want to push to Docker Hub instead:
 
 ```bash
 docker tag openevse-emulator username/openevse-emulator:latest

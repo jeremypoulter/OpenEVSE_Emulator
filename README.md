@@ -1,5 +1,9 @@
 # OpenEVSE Emulator
 
+[![Tests](https://github.com/jeremypoulter/OpenEVSE_Emulator/actions/workflows/tests.yml/badge.svg)](https://github.com/jeremypoulter/OpenEVSE_Emulator/actions/workflows/tests.yml)
+[![Docker Build](https://github.com/jeremypoulter/OpenEVSE_Emulator/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/jeremypoulter/OpenEVSE_Emulator/actions/workflows/docker-publish.yml)
+[![Docker Image](https://ghcr-badge.egpl.dev/jeremypoulter/openevse_emulator/latest_tag?label=latest)](https://github.com/jeremypoulter/OpenEVSE_Emulator/pkgs/container/openevse_emulator)
+
 A Python-based software emulator for the
 [OpenEVSE](https://github.com/OpenEVSE/open_evse) electric vehicle charging
 station firmware. This emulator simulates both the EVSE (charging station)
@@ -50,14 +54,20 @@ python src/main.py
 
 #### Option 2: Docker
 
-1. Build and run using Docker:
+**Using Pre-built Image from GitHub Packages:**
+
+```bash
+docker run -p 8080:8080 -p 8023:8023 ghcr.io/jeremypoulter/openevse_emulator:latest
+```
+
+**Building Locally:**
 
 ```bash
 docker build -t openevse-emulator .
 docker run -p 8080:8080 -p 8023:8023 openevse-emulator
 ```
 
-1. Or use Docker Compose:
+**Or use Docker Compose:**
 
 ```bash
 docker-compose up
@@ -184,18 +194,16 @@ serial port to enable network-based serial communication.
 
 ## Docker Deployment
 
-### Building the Image
+### Using Pre-built Image from GitHub Packages
+
+The easiest way to run the emulator is using the pre-built Docker image from GitHub Container Registry:
 
 ```bash
-docker build -t openevse-emulator .
-```
+# Pull and run the latest version
+docker run -p 8080:8080 -p 8023:8023 ghcr.io/jeremypoulter/openevse_emulator:latest
 
-### Running with Docker
-
-Basic run:
-
-```bash
-docker run -p 8080:8080 -p 8023:8023 openevse-emulator
+# Or pull a specific version
+docker run -p 8080:8080 -p 8023:8023 ghcr.io/jeremypoulter/openevse_emulator:1.0.0
 ```
 
 With custom configuration:
@@ -203,7 +211,21 @@ With custom configuration:
 ```bash
 docker run -p 8080:8080 -p 8023:8023 \
   -v $(pwd)/config.json:/app/config.json:ro \
-  openevse-emulator
+  ghcr.io/jeremypoulter/openevse_emulator:latest
+```
+
+### Building the Image Locally
+
+If you want to build from source:
+
+```bash
+docker build -t openevse-emulator .
+```
+
+Then run:
+
+```bash
+docker run -p 8080:8080 -p 8023:8023 openevse-emulator
 ```
 
 ### Running with Docker Compose
