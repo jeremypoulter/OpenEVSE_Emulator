@@ -43,6 +43,7 @@ jobs:
         # Note: Requires DEPENDABOT_PAT secret for approval to work (GITHUB_TOKEN cannot self-approve)
         # If PAT is not configured, this step will fail gracefully and auto-merge will still work
         # but will require manual approval
+        id: auto-approve
         if: |
           (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
            steps.metadata.outputs.update-type == 'version-update:semver-patch') &&
@@ -53,6 +54,19 @@ jobs:
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.DEPENDABOT_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Notify if manual approval needed
+        if: |
+          steps.auto-approve.outcome == 'failure' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+           steps.metadata.outputs.update-type == 'version-update:semver-patch') &&
+          (steps.metadata.outputs.package-ecosystem == 'pip' ||
+           steps.metadata.outputs.package-ecosystem == 'github_actions')
+        run: |
+          gh pr comment "$PR_URL" --body "✅ Auto-merge has been enabled for this PR. Manual approval is required before the PR can be merged (configure DEPENDABOT_PAT secret for automatic approval)."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Enable auto-merge for minor and patch updates (pip and github-actions only)
         if: |
