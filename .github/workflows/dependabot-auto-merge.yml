@@ -6,9 +6,11 @@ name: Dependabot Auto-Merge
 # PREREQUISITES:
 # 1. Branch protection rules must be enabled with required status checks configured
 #    (e.g., test, lint, markdown-lint from tests.yml workflow)
-# 2. A Personal Access Token (PAT) with 'repo' permissions must be added as a
+# 2. A Personal Access Token (PAT) with 'repo' permissions is recommended as a
 #    repository secret named 'DEPENDABOT_PAT' for auto-approval to work
 #    (GitHub's GITHUB_TOKEN cannot approve its own PRs)
+#    - Without PAT: Auto-merge is enabled but requires manual approval
+#    - With PAT: Fully automated approval and merge
 #
 # SECURITY:
 # - Uses pull_request_target which runs in the base branch context
