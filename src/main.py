@@ -107,6 +107,14 @@ _ENV_OVERRIDE_PATHS = {
     "WEB_PORT": "web.port",
 }
 
+# Explicit type mapping for environment variable overrides
+_ENV_OVERRIDE_TYPES = {
+    "serial.tcp_port": int,
+    "serial.reconnect_timeout_sec": int,
+    "serial.reconnect_backoff_ms": int,
+    "web.port": int,
+}
+
 
 def _parse_args() -> argparse.Namespace:
     """Parse command-line arguments. Options not passed have default=SUPPRESS."""
@@ -252,14 +260,15 @@ def apply_env_overrides(config: dict) -> None:
     for env_var, dot_path in _ENV_OVERRIDE_PATHS.items():
         value = os.environ.get(env_var)
         if value is not None:
-            # Type conversion based on expected type
-            last_segment = dot_path.split(".")[-1]
-            if last_segment in ("port", "tcp_port", "timeout_sec", "backoff_ms"):
+            # Type conversion based on explicit type mapping
+            if dot_path in _ENV_OVERRIDE_TYPES:
                 try:
-                    value = int(value)
-                except ValueError:
+                    value = _ENV_OVERRIDE_TYPES[dot_path](value)
+                except (ValueError, TypeError):
+                    type_name = _ENV_OVERRIDE_TYPES[dot_path].__name__
                     print(
-                        f"Warning: Invalid integer value for {env_var}={value}, skipping"
+                        f"Warning: Invalid {type_name} value for {env_var}={value}, "
+                        "skipping"
                     )
                     continue
             set_nested(config, dot_path, value)
