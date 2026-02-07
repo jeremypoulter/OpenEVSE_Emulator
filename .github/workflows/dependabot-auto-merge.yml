@@ -39,18 +39,18 @@ jobs:
 
       - name: Auto-approve for minor and patch updates (pip and github-actions only)
         # Note: Requires DEPENDABOT_PAT secret for approval to work (GITHUB_TOKEN cannot self-approve)
-        # If PAT is not configured, this step will be skipped and auto-merge will still work
+        # If PAT is not configured, this step will fail gracefully and auto-merge will still work
         # but will require manual approval
         if: |
-          secrets.DEPENDABOT_PAT != '' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
            steps.metadata.outputs.update-type == 'version-update:semver-patch') &&
           (steps.metadata.outputs.package-ecosystem == 'pip' ||
            steps.metadata.outputs.package-ecosystem == 'github_actions')
+        continue-on-error: true
         run: gh pr review --approve "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.DEPENDABOT_PAT }}
+          GITHUB_TOKEN: ${{ secrets.DEPENDABOT_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Enable auto-merge for minor and patch updates (pip and github-actions only)
         if: |
