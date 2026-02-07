@@ -128,9 +128,7 @@ class VirtualSerialPort:
             attrs[1] &= ~(
                 termios.OCRNL | termios.ONLCR
             )  # No CR/NL translation on output
-            attrs[3] &= ~(
-                termios.ECHO | termios.ICANON
-            )  # No echo, no canonical mode
+            attrs[3] &= ~(termios.ECHO | termios.ICANON)  # No echo, no canonical mode
             termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
         except Exception as e:
             print(f"Warning: Could not set PTY to raw mode: {e}")
