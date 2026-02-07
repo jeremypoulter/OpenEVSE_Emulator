@@ -111,3 +111,38 @@ def test_get_status():
     assert status["soc"] == 75.5
     assert "actual_charge_rate_kw" in status
     assert "battery_capacity_kwh" in status
+
+
+def test_diode_check_failed_property():
+    """Test diode check failed property getter and setter."""
+    ev = EVSimulator()
+
+    # Initially False
+    assert ev.diode_check_failed is False
+
+    # Set to True
+    ev.diode_check_failed = True
+    assert ev.diode_check_failed is True
+
+    # Should affect pilot resistance
+    ev.connected = True
+    assert ev.get_pilot_resistance() == "D"
+
+    # Reset
+    ev.diode_check_failed = False
+    assert ev.get_pilot_resistance() == "B"
+
+
+def test_charging_stops_at_full_no_power():
+    """Test that charging rate becomes 0 when battery is full."""
+    ev = EVSimulator(battery_capacity_kwh=10.0, max_charge_rate_kw=10.0)
+    ev.connected = True
+    ev.requesting_charge = True
+    ev.soc = 100.0
+
+    # Try to charge when already full
+    ev.update_charging(50, 240, 1.0)
+
+    # Charge rate should be 0
+    assert ev.actual_charge_rate_kw == 0.0
+    assert ev.soc == 100.0
