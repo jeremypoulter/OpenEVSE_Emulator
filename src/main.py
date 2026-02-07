@@ -7,6 +7,7 @@ Integrates all components and manages the simulation loop.
 
 import argparse
 import json
+import os
 import signal
 import sys
 import threading
@@ -26,7 +27,14 @@ from web.api import WebAPI  # noqa: E402
 def default_config() -> dict:
     """Return default configuration."""
     return {
-        "serial": {"mode": "pty", "tcp_port": 8023, "baudrate": 115200},
+        "serial": {
+            "mode": "pty",
+            "tcp_port": 8023,
+            "baudrate": 115200,
+            "pty_path": None,  # None = auto-generate, or explicit path like /tmp/rapi_pty_0
+            "reconnect_timeout_sec": 60,  # Max time to retry connections (0 = infinite)
+            "reconnect_backoff_ms": 1000,  # Initial backoff between retries
+        },
         "evse": {
             "firmware_version": "8.2.1",
             "protocol_version": "5.0.1",
@@ -73,6 +81,9 @@ _CLI_OVERRIDE_PATHS = {
     "serial_mode": "serial.mode",
     "serial_tcp_port": "serial.tcp_port",
     "serial_baudrate": "serial.baudrate",
+    "serial_pty_path": "serial.pty_path",
+    "serial_reconnect_timeout": "serial.reconnect_timeout_sec",
+    "serial_reconnect_backoff": "serial.reconnect_backoff_ms",
     "evse_firmware_version": "evse.firmware_version",
     "evse_protocol_version": "evse.protocol_version",
     "evse_default_current": "evse.default_current",
@@ -83,6 +94,25 @@ _CLI_OVERRIDE_PATHS = {
     "web_host": "web.host",
     "web_port": "web.port",
     "simulation_update_interval_ms": "simulation.update_interval_ms",
+}
+
+# Mapping from environment variable names to config dot paths.
+_ENV_OVERRIDE_PATHS = {
+    "SERIAL_MODE": "serial.mode",
+    "SERIAL_TCP_PORT": "serial.tcp_port",
+    "SERIAL_PTY_PATH": "serial.pty_path",
+    "SERIAL_RECONNECT_TIMEOUT": "serial.reconnect_timeout_sec",
+    "SERIAL_RECONNECT_BACKOFF": "serial.reconnect_backoff_ms",
+    "WEB_HOST": "web.host",
+    "WEB_PORT": "web.port",
+}
+
+# Explicit type mapping for environment variable overrides
+_ENV_OVERRIDE_TYPES = {
+    "serial.tcp_port": int,
+    "serial.reconnect_timeout_sec": int,
+    "serial.reconnect_backoff_ms": int,
+    "web.port": int,
 }
 
 
@@ -116,6 +146,27 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=argparse.SUPPRESS,
         help="Serial baud rate (default: 115200)",
+    )
+    p.add_argument(
+        "--serial-pty-path",
+        dest="serial_pty_path",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Explicit PTY path (e.g. /tmp/rapi_pty_0). If not set, path is auto-generated.",
+    )
+    p.add_argument(
+        "--serial-reconnect-timeout",
+        dest="serial_reconnect_timeout",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Max seconds to retry connections (0=infinite, default: 60)",
+    )
+    p.add_argument(
+        "--serial-reconnect-backoff",
+        dest="serial_reconnect_backoff",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Initial backoff between connection retries in ms (default: 1000)",
     )
     p.add_argument(
         "--evse-firmware-version",
@@ -204,6 +255,34 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def apply_env_overrides(config: dict) -> None:
+    """Apply environment variable overrides to config."""
+    for env_var, dot_path in _ENV_OVERRIDE_PATHS.items():
+        value = os.environ.get(env_var)
+        if value is not None:
+            # Type conversion based on explicit type mapping.
+            # Support multiple key styles (full dot path, last segment, env var name)
+            # to avoid mismatches between mapping keys and dot paths.
+            converter = None
+            last_segment = dot_path.split(".")[-1]
+            for key in (dot_path, last_segment, env_var):
+                if key in _ENV_OVERRIDE_TYPES:
+                    converter = _ENV_OVERRIDE_TYPES[key]
+                    break
+            if converter is not None:
+                try:
+                    value = converter(value)
+                except (ValueError, TypeError):
+                    type_name = getattr(converter, "__name__", type(converter).__name__)
+                    print(
+                        f"Warning: Invalid {type_name} value for {env_var}={value}, "
+                        "skipping"
+                    )
+                    continue
+            set_nested(config, dot_path, value)
+            print(f"Applied env override: {env_var} -> {dot_path}")
+
+
 def apply_overrides(config: dict, args: argparse.Namespace) -> None:
     """Apply CLI overrides to config (only for options that were explicitly set)."""
     for dest, dot_path in _CLI_OVERRIDE_PATHS.items():
@@ -251,7 +330,11 @@ class OpenEVSEEmulator:
 
         serial_config = self.config["serial"]
         self.serial_port = VirtualSerialPort(
-            mode=serial_config["mode"], tcp_port=serial_config["tcp_port"]
+            mode=serial_config["mode"],
+            tcp_port=serial_config["tcp_port"],
+            pty_path=serial_config.get("pty_path"),
+            reconnect_timeout_sec=serial_config.get("reconnect_timeout_sec", 60),
+            reconnect_backoff_ms=serial_config.get("reconnect_backoff_ms", 1000),
         )
 
         # Wire up state change callback to send async notifications
@@ -381,7 +464,8 @@ def main():
     """Main entry point."""
     args = _parse_args()
     config = load_config(args.config)
-    apply_overrides(config, args)
+    apply_env_overrides(config)  # Apply environment variables first
+    apply_overrides(config, args)  # CLI args override env vars
 
     emulator = OpenEVSEEmulator(config=config)
 

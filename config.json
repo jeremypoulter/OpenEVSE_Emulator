@@ -2,7 +2,10 @@
   "serial": {
     "mode": "pty",
     "tcp_port": 8023,
-    "baudrate": 115200
+    "baudrate": 115200,
+    "pty_path": null,
+    "reconnect_timeout_sec": 60,
+    "reconnect_backoff_ms": 1000
   },
   "evse": {
     "firmware_version": "8.2.1",
