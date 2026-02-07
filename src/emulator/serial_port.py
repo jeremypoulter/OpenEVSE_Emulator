@@ -35,7 +35,19 @@ class VirtualSerialPort:
                      If None, path is auto-generated. A symlink is created.
             reconnect_timeout_sec: Max seconds to retry connections (0=infinite)
             reconnect_backoff_ms: Initial backoff between retries in milliseconds
+
+        Raises:
+            ValueError: If reconnect_timeout_sec or reconnect_backoff_ms is negative
         """
+        if reconnect_timeout_sec < 0:
+            raise ValueError(
+                f"reconnect_timeout_sec must be >= 0, got {reconnect_timeout_sec}"
+            )
+        if reconnect_backoff_ms < 0:
+            raise ValueError(
+                f"reconnect_backoff_ms must be >= 0, got {reconnect_backoff_ms}"
+            )
+
         self.mode = mode
         self.tcp_port = tcp_port
         self.pty_path = pty_path
@@ -108,16 +120,10 @@ class VirtualSerialPort:
                     try:
                         os.symlink(self.slave_name, self.pty_path)
                         self.pty_symlink = self.pty_path
-                        print(
-                            f"Created symlink: {self.pty_path} -> {self.slave_name}"
-                        )
+                        print(f"Created symlink: {self.pty_path} -> {self.slave_name}")
                     except Exception as e:
-                        print(
-                            f"Warning: Could not create symlink {self.pty_path}: {e}"
-                        )
-                        print(
-                            f"Using auto-generated path instead: {self.slave_name}"
-                        )
+                        print(f"Warning: Could not create symlink {self.pty_path}: {e}")
+                        print(f"Using auto-generated path instead: {self.slave_name}")
             # Configure PTY to raw mode to prevent \r -> \n translation
             # This ensures RAPI protocol line endings (\r) are preserved
             try:
