@@ -85,23 +85,39 @@ class VirtualSerialPort:
 
             # If explicit path requested, create a symlink
             if self.pty_path:
-                # Remove existing symlink/file if present
-                if os.path.exists(self.pty_path) or os.path.islink(self.pty_path):
+                # Remove existing symlink if present. Do not remove non-symlink files.
+                if os.path.islink(self.pty_path):
                     try:
                         os.unlink(self.pty_path)
                     except Exception as e:
                         print(
-                            f"Warning: Could not remove existing {self.pty_path}: {e}"
+                            f"Warning: Could not remove existing symlink "
+                            f"{self.pty_path}: {e}"
                         )
-
-                try:
-                    os.symlink(self.slave_name, self.pty_path)
-                    self.pty_symlink = self.pty_path
-                    print(f"Created symlink: {self.pty_path} -> {self.slave_name}")
-                except Exception as e:
-                    print(f"Warning: Could not create symlink {self.pty_path}: {e}")
+                elif os.path.exists(self.pty_path):
+                    # Existing non-symlink at requested path; refuse to overwrite.
+                    print(
+                        "Warning: Requested PTY path exists and is not a symlink, "
+                        f"refusing to overwrite: {self.pty_path}"
+                    )
                     print(f"Using auto-generated path instead: {self.slave_name}")
+                    self.pty_path = None
+                    self.pty_symlink = None
 
+                if self.pty_path:
+                    try:
+                        os.symlink(self.slave_name, self.pty_path)
+                        self.pty_symlink = self.pty_path
+                        print(
+                            f"Created symlink: {self.pty_path} -> {self.slave_name}"
+                        )
+                    except Exception as e:
+                        print(
+                            f"Warning: Could not create symlink {self.pty_path}: {e}"
+                        )
+                        print(
+                            f"Using auto-generated path instead: {self.slave_name}"
+                        )
             # Configure PTY to raw mode to prevent \r -> \n translation
             # This ensures RAPI protocol line endings (\r) are preserved
             try:
