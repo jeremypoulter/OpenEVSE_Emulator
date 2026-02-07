@@ -6,8 +6,6 @@ Integrates all components and manages the simulation loop.
 """
 
 import argparse
-import json
-import os
 import signal
 import sys
 import threading
@@ -17,103 +15,17 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
+from emulator.config import (  # noqa: E402
+    CLI_OVERRIDE_PATHS,
+    apply_cli_overrides,
+    apply_env_overrides,
+    load_config,
+)
 from emulator.evse import EVSEStateMachine  # noqa: E402
 from emulator.ev import EVSimulator  # noqa: E402
 from emulator.rapi import RAPIHandler  # noqa: E402
 from emulator.serial_port import VirtualSerialPort  # noqa: E402
 from web.api import WebAPI  # noqa: E402
-
-
-def default_config() -> dict:
-    """Return default configuration."""
-    return {
-        "serial": {
-            "mode": "pty",
-            "tcp_port": 8023,
-            "baudrate": 115200,
-            "pty_path": None,  # None = auto-generate, or explicit path like /tmp/rapi_pty_0
-            "reconnect_timeout_sec": 60,  # Max time to retry connections (0 = infinite)
-            "reconnect_backoff_ms": 1000,  # Initial backoff between retries
-        },
-        "evse": {
-            "firmware_version": "8.2.1",
-            "protocol_version": "5.0.1",
-            "default_current": 32,
-            "service_level": "L2",
-            "gfci_self_test": True,
-        },
-        "ev": {"battery_capacity_kwh": 75, "max_charge_rate_kw": 7.2},
-        "web": {"host": "0.0.0.0", "port": 8080},
-        "simulation": {
-            "update_interval_ms": 1000,
-            "temperature_simulation": True,
-            "realistic_charge_curve": True,
-        },
-    }
-
-
-def load_config(config_path: str) -> dict:
-    """Load configuration from JSON file."""
-    try:
-        with open(config_path, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"Warning: Config file {config_path} not found, using defaults")
-        return default_config()
-    except json.JSONDecodeError as e:
-        print(f"Error parsing config file: {e}")
-        sys.exit(1)
-
-
-def set_nested(config: dict, dot_path: str, value) -> None:
-    """Set a nested dict key from a dot path, e.g. set_nested(c, 'serial.tcp_port', 8024)."""
-    parts = dot_path.split(".")
-    current = config
-    for part in parts[:-1]:
-        if part not in current:
-            current[part] = {}
-        current = current[part]
-    current[parts[-1]] = value
-
-
-# Mapping from argparse dest (option name with underscores) to config dot path.
-_CLI_OVERRIDE_PATHS = {
-    "serial_mode": "serial.mode",
-    "serial_tcp_port": "serial.tcp_port",
-    "serial_baudrate": "serial.baudrate",
-    "serial_pty_path": "serial.pty_path",
-    "serial_reconnect_timeout": "serial.reconnect_timeout_sec",
-    "serial_reconnect_backoff": "serial.reconnect_backoff_ms",
-    "evse_firmware_version": "evse.firmware_version",
-    "evse_protocol_version": "evse.protocol_version",
-    "evse_default_current": "evse.default_current",
-    "evse_service_level": "evse.service_level",
-    "evse_gfci_self_test": "evse.gfci_self_test",
-    "ev_battery_capacity_kwh": "ev.battery_capacity_kwh",
-    "ev_max_charge_rate_kw": "ev.max_charge_rate_kw",
-    "web_host": "web.host",
-    "web_port": "web.port",
-    "simulation_update_interval_ms": "simulation.update_interval_ms",
-}
-
-# Mapping from environment variable names to config dot paths.
-_ENV_OVERRIDE_PATHS = {
-    "SERIAL_MODE": "serial.mode",
-    "SERIAL_TCP_PORT": "serial.tcp_port",
-    "SERIAL_PTY_PATH": "serial.pty_path",
-    "SERIAL_RECONNECT_TIMEOUT": "serial.reconnect_timeout_sec",
-    "SERIAL_RECONNECT_BACKOFF": "serial.reconnect_backoff_ms",
-    "WEB_HOST": "web.host",
-    "WEB_PORT": "web.port",
-}
-
-# Explicit type mapping for environment variable overrides
-_ENV_OVERRIDE_TYPES = {
-    "serial.tcp_port": int,
-    "serial.reconnect_timeout_sec": int,
-    "serial.reconnect_backoff_ms": int,
-    "web.port": int,
-}
 
 
 def _parse_args() -> argparse.Namespace:
@@ -152,7 +64,7 @@ def _parse_args() -> argparse.Namespace:
         dest="serial_pty_path",
         type=str,
         default=argparse.SUPPRESS,
-        help="Explicit PTY path (e.g. /tmp/rapi_pty_0). If not set, path is auto-generated.",
+        help="Explicit PTY path (e.g. /tmp/rapi_pty_0). If not set, auto-generated.",
     )
     p.add_argument(
         "--serial-reconnect-timeout",
@@ -255,40 +167,10 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def apply_env_overrides(config: dict) -> None:
-    """Apply environment variable overrides to config."""
-    for env_var, dot_path in _ENV_OVERRIDE_PATHS.items():
-        value = os.environ.get(env_var)
-        if value is not None:
-            # Type conversion based on explicit type mapping.
-            # Support multiple key styles (full dot path, last segment, env var name)
-            # to avoid mismatches between mapping keys and dot paths.
-            converter = None
-            last_segment = dot_path.split(".")[-1]
-            for key in (dot_path, last_segment, env_var):
-                if key in _ENV_OVERRIDE_TYPES:
-                    converter = _ENV_OVERRIDE_TYPES[key]
-                    break
-            if converter is not None:
-                try:
-                    value = converter(value)
-                except (ValueError, TypeError):
-                    type_name = getattr(converter, "__name__", type(converter).__name__)
-                    print(
-                        f"Warning: Invalid {type_name} value for {env_var}={value}, "
-                        "skipping"
-                    )
-                    continue
-            set_nested(config, dot_path, value)
-            print(f"Applied env override: {env_var} -> {dot_path}")
-
-
 def apply_overrides(config: dict, args: argparse.Namespace) -> None:
     """Apply CLI overrides to config (only for options that were explicitly set)."""
-    for dest, dot_path in _CLI_OVERRIDE_PATHS.items():
-        if hasattr(args, dest):
-            value = getattr(args, dest)
-            set_nested(config, dot_path, value)
+    args_dict = {k: v for k, v in vars(args).items() if k in CLI_OVERRIDE_PATHS}
+    apply_cli_overrides(config, args_dict)
 
 
 class OpenEVSEEmulator:
