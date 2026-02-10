@@ -304,7 +304,7 @@ graph TD
         D --> F
     end
     
-    EmulatorCore --> G[Virtual Serial Port]
+    F --> G[Virtual Serial Port]
 ```
 
 ## Development

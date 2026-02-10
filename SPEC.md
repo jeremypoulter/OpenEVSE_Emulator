@@ -32,7 +32,7 @@ graph TD
         D --> F
     end
     
-    EmulatorCore --> G[Virtual Serial Port<br/>pty or TCP socket]
+    F --> G[Virtual Serial Port<br/>pty or TCP socket]
 ```
 
 ## RAPI Protocol Implementation
