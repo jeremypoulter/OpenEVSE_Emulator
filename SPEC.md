@@ -22,9 +22,9 @@ charging station without requiring physical hardware.
 ```mermaid
 graph TD
     A[Web UI<br/>HTML/CSS/JS] -->|HTTP/WebSocket| B[Web API<br/>Flask<br/>- REST endpoints for control<br/>- WebSocket for real-time updates]
-    B --> C[Emulator Core]
+    B --> EmulatorCore
     
-    subgraph C[Emulator Core]
+    subgraph EmulatorCore[Emulator Core]
         D[EVSE State Machine<br/>- State A,B,C,D<br/>- Current limit<br/>- Temperature]
         E[EV Simulator<br/>- Connection<br/>- Battery SoC<br/>- Charge rate<br/>- Error modes]
         E -.-> D

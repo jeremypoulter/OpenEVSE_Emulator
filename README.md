@@ -294,9 +294,9 @@ See [SPEC.md](SPEC.md) for complete RAPI protocol documentation.
 ```mermaid
 graph TD
     A[Web UI<br/>HTML/CSS/JS] -->|HTTP/WebSocket| B[Web API<br/>Flask]
-    B --> C[Emulator Core]
+    B --> EmulatorCore
     
-    subgraph C[Emulator Core]
+    subgraph EmulatorCore[Emulator Core]
         D[EVSE State Machine]
         E[EV Simulator]
         E -.-> D
