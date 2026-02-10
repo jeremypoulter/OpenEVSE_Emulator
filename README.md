@@ -413,6 +413,12 @@ To test the emulator with actual OpenEVSE WiFi firmware:
 
 ## Documentation
 
+- **API Documentation**: View at http://localhost:8080/api/docs or explore the
+  [GitHub Wiki](https://github.com/jeremypoulter/OpenEVSE_Emulator/wiki) for
+  comprehensive API guides and examples
+- **OpenAPI Specification**: Download the machine-readable API spec at
+  http://localhost:8080/api/openapi.yaml or view it in the repository as
+  [openapi.yaml](openapi.yaml)
 - [SPEC.md](SPEC.md) - Detailed technical specification
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) - Development guidelines
 - [OpenEVSE RAPI Documentation](https://github.com/OpenEVSE/open_evse/blob/master/firmware/open_evse/rapi_proc.h)
