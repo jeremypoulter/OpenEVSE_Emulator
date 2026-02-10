@@ -299,11 +299,12 @@ graph TD
     subgraph EmulatorCore[Emulator Core]
         D[EVSE State Machine]
         E[EV Simulator]
+        F[RAPI Handler]
         E -.-> D
-        D --> F[RAPI Handler]
+        D --> F
     end
     
-    F --> G[Virtual Serial Port]
+    EmulatorCore --> G[Virtual Serial Port]
 ```
 
 ## Development

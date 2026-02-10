@@ -27,11 +27,12 @@ graph TD
     subgraph EmulatorCore[Emulator Core]
         D[EVSE State Machine<br/>- State A,B,C,D<br/>- Current limit<br/>- Temperature]
         E[EV Simulator<br/>- Connection<br/>- Battery SoC<br/>- Charge rate<br/>- Error modes]
+        F[RAPI Protocol Handler<br/>- Command parser<br/>- Response gen]
         E -.-> D
-        D --> F[RAPI Protocol Handler<br/>- Command parser<br/>- Response gen]
+        D --> F
     end
     
-    F --> G[Virtual Serial Port<br/>pty or TCP socket]
+    EmulatorCore --> G[Virtual Serial Port<br/>pty or TCP socket]
 ```
 
 ## RAPI Protocol Implementation
