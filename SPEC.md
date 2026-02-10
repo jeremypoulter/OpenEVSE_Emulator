@@ -19,39 +19,19 @@ charging station without requiring physical hardware.
 
 ### System Architecture
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                        Web UI (HTML/CSS/JS)                  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ HTTP/WebSocket
-┌──────────────────────────▼──────────────────────────────────┐
-│                     Web API (Flask)                          │
-│  - REST endpoints for control                                │
-│  - WebSocket for real-time updates                           │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│                   Emulator Core                              │
-│  ┌────────────────────┐  ┌────────────────────┐             │
-│  │  EVSE State        │  │  EV Simulator      │             │
-│  │  Machine           │◄─┤  - Connection      │             │
-│  │  - State A,B,C,D   │  │  - Battery SoC     │             │
-│  │  - Current limit   │  │  - Charge rate     │             │
-│  │  - Temperature     │  │  - Error modes     │             │
-│  └─────────┬──────────┘  └────────────────────┘             │
-│            │                                                  │
-│  ┌─────────▼──────────┐                                      │
-│  │  RAPI Protocol     │                                      │
-│  │  Handler           │                                      │
-│  │  - Command parser  │                                      │
-│  │  - Response gen    │                                      │
-│  └─────────┬──────────┘                                      │
-└────────────┼─────────────────────────────────────────────────┘
-             │
-┌────────────▼──────────────┐
-│  Virtual Serial Port      │
-│  (pty or TCP socket)      │
-└───────────────────────────┘
+```mermaid
+graph TD
+    A[Web UI<br/>HTML/CSS/JS] -->|HTTP/WebSocket| B[Web API<br/>Flask<br/>- REST endpoints for control<br/>- WebSocket for real-time updates]
+    B --> C[Emulator Core]
+    
+    subgraph C[Emulator Core]
+        D[EVSE State Machine<br/>- State A,B,C,D<br/>- Current limit<br/>- Temperature]
+        E[EV Simulator<br/>- Connection<br/>- Battery SoC<br/>- Charge rate<br/>- Error modes]
+        E -.-> D
+        D --> F[RAPI Protocol Handler<br/>- Command parser<br/>- Response gen]
+    end
+    
+    F --> G[Virtual Serial Port<br/>pty or TCP socket]
 ```
 
 ## RAPI Protocol Implementation

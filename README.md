@@ -291,29 +291,19 @@ See [SPEC.md](SPEC.md) for complete RAPI protocol documentation.
 
 ## Architecture
 
-```text
-┌─────────────────────────────────────────────────────┐
-│              Web UI (HTML/CSS/JS)                    │
-└──────────────────────┬──────────────────────────────┘
-                       │ HTTP/WebSocket
-┌──────────────────────▼──────────────────────────────┐
-│               Web API (Flask)                        │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│  ┌──────────────┐  ┌──────────────┐                 │
-│  │ EVSE State   │  │ EV Simulator │                 │
-│  │ Machine      │◄─┤              │                 │
-│  └──────┬───────┘  └──────────────┘                 │
-│         │                                            │
-│  ┌──────▼───────┐                                    │
-│  │ RAPI Handler │                                    │
-│  └──────┬───────┘                                    │
-└─────────┼────────────────────────────────────────────┘
-          │
-┌─────────▼──────────┐
-│ Virtual Serial Port│
-└────────────────────┘
+```mermaid
+graph TD
+    A[Web UI<br/>HTML/CSS/JS] -->|HTTP/WebSocket| B[Web API<br/>Flask]
+    B --> C[Emulator Core]
+    
+    subgraph C[Emulator Core]
+        D[EVSE State Machine]
+        E[EV Simulator]
+        E -.-> D
+        D --> F[RAPI Handler]
+    end
+    
+    F --> G[Virtual Serial Port]
 ```
 
 ## Development
