@@ -553,6 +553,46 @@ ws.onmessage = (event) => {
             except (ValueError, TypeError):
                 return jsonify({"error": "Invalid amps value"}), 400
 
+        @self.app.route("/api/ev/mode", methods=["POST"])
+        def set_ev_mode():
+            data = request.get_json()
+            if not data or "direct_mode" not in data:
+                return jsonify({"error": "Missing direct_mode parameter"}), 400
+
+            self.ev.direct_mode = bool(data["direct_mode"])
+            self._broadcast_status()
+            return jsonify({"success": True})
+
+        @self.app.route("/api/ev/direct_current", methods=["POST"])
+        def set_direct_current():
+            data = request.get_json()
+            if not data or "amps" not in data:
+                return jsonify({"error": "Missing amps parameter"}), 400
+
+            try:
+                amps = float(data["amps"])
+                if amps < 0:
+                    return (
+                        jsonify({"error": "Current must be non-negative"}),
+                        400,
+                    )
+
+                self.ev.direct_current_amps = amps
+                self._broadcast_status()
+                return jsonify({"success": True})
+            except (ValueError, TypeError):
+                return jsonify({"error": "Invalid amps value"}), 400
+
+        @self.app.route("/api/ev/current_variance", methods=["POST"])
+        def set_current_variance():
+            data = request.get_json()
+            if not data or "enabled" not in data:
+                return jsonify({"error": "Missing enabled parameter"}), 400
+
+            self.ev.current_variance_enabled = bool(data["enabled"])
+            self._broadcast_status()
+            return jsonify({"success": True})
+
         # Error simulation endpoints
         @self.app.route("/api/errors/trigger", methods=["POST"])
         def trigger_error():

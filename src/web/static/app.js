@@ -34,6 +34,27 @@ function initializeControls() {
     document.getElementById('battery-soc').addEventListener('change', function(e) {
         apiCall('/api/ev/soc', 'POST', { soc: parseFloat(e.target.value) });
     });
+
+    // Direct mode toggle
+    document.getElementById('direct-mode-toggle').addEventListener('change', function(e) {
+        const directMode = e.target.checked;
+        apiCall('/api/ev/mode', 'POST', { direct_mode: directMode });
+        updateModeUI(directMode);
+    });
+
+    // Direct current slider
+    document.getElementById('direct-current').addEventListener('input', function(e) {
+        document.getElementById('direct-current-value').textContent = parseFloat(e.target.value).toFixed(1);
+    });
+
+    document.getElementById('direct-current').addEventListener('change', function(e) {
+        apiCall('/api/ev/direct_current', 'POST', { amps: parseFloat(e.target.value) });
+    });
+
+    // Current variance toggle
+    document.getElementById('variance-toggle').addEventListener('change', function(e) {
+        apiCall('/api/ev/current_variance', 'POST', { enabled: e.target.checked });
+    });
     
     // Error simulation
     document.querySelectorAll('.btn-danger[data-error]').forEach(btn => {
@@ -54,6 +75,23 @@ function initializeControls() {
             sendSerialCommand();
         }
     });
+}
+
+// Update UI based on current control mode
+function updateModeUI(directMode) {
+    const batteryControls = document.getElementById('battery-controls');
+    const directControls = document.getElementById('direct-controls');
+    const modeLabel = document.getElementById('mode-label');
+
+    if (directMode) {
+        batteryControls.style.display = 'none';
+        directControls.style.display = 'block';
+        modeLabel.textContent = 'Direct Control';
+    } else {
+        batteryControls.style.display = 'block';
+        directControls.style.display = 'none';
+        modeLabel.textContent = 'Battery Emulation';
+    }
 }
 
 // Initialize WebSocket event listeners
@@ -231,6 +269,32 @@ function updateDisplay() {
     // EV sliders
     document.getElementById('battery-soc').value = ev.soc;
     document.getElementById('battery-soc-value').textContent = ev.soc;
+
+    // Sync direct mode UI
+    const directModeToggle = document.getElementById('direct-mode-toggle');
+    if (directModeToggle.checked !== ev.direct_mode) {
+        directModeToggle.checked = ev.direct_mode;
+        updateModeUI(ev.direct_mode);
+    }
+
+    // Update direct current slider max to current_capacity * 1.1
+    const maxDirectCurrent = Math.ceil(evse.current_capacity * 1.1 * 10) / 10;
+    const directCurrentSlider = document.getElementById('direct-current');
+    directCurrentSlider.max = maxDirectCurrent;
+    directCurrentSlider.value = ev.direct_current_amps;
+    document.getElementById('direct-current-value').textContent = ev.direct_current_amps.toFixed(1);
+
+    // Sync variance toggle
+    const varianceToggle = document.getElementById('variance-toggle');
+    if (varianceToggle.checked !== ev.current_variance_enabled) {
+        varianceToggle.checked = ev.current_variance_enabled;
+    }
+    const varianceLabel = document.getElementById('variance-label');
+    if (ev.current_variance_enabled) {
+        varianceLabel.textContent = ev.direct_mode ? '±1%' : '-1%';
+    } else {
+        varianceLabel.textContent = 'Off';
+    }
 }
 
 // Format time in HH:MM:SS
