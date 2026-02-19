@@ -155,6 +155,9 @@ function updateDisplay() {
     const evse = currentState.evse;
     const ev = currentState.ev;
 
+    // Guard: skip if status data not yet loaded
+    if (!evse || !ev || evse.actual_current === undefined) return;
+
     // LCD Display
     const row1 = evse.lcd_row1 || "OpenEVSE      ";
     const row2 = evse.lcd_row2 || "v8.2.1        ";
@@ -272,26 +275,29 @@ function updateDisplay() {
 
     // Sync direct mode UI
     const directModeToggle = document.getElementById('direct-mode-toggle');
-    if (directModeToggle.checked !== ev.direct_mode) {
-        directModeToggle.checked = ev.direct_mode;
-        updateModeUI(ev.direct_mode);
+    const directMode = ev.direct_mode || false;
+    if (directModeToggle.checked !== directMode) {
+        directModeToggle.checked = directMode;
+        updateModeUI(directMode);
     }
 
     // Update direct current slider max to current_capacity * 1.1
     const maxDirectCurrent = Math.ceil(evse.current_capacity * 1.1 * 10) / 10;
     const directCurrentSlider = document.getElementById('direct-current');
+    const directCurrentAmps = ev.direct_current_amps || 0;
     directCurrentSlider.max = maxDirectCurrent;
-    directCurrentSlider.value = ev.direct_current_amps;
-    document.getElementById('direct-current-value').textContent = ev.direct_current_amps.toFixed(1);
+    directCurrentSlider.value = directCurrentAmps;
+    document.getElementById('direct-current-value').textContent = directCurrentAmps.toFixed(1);
 
     // Sync variance toggle
     const varianceToggle = document.getElementById('variance-toggle');
-    if (varianceToggle.checked !== ev.current_variance_enabled) {
-        varianceToggle.checked = ev.current_variance_enabled;
+    const varianceEnabled = ev.current_variance_enabled || false;
+    if (varianceToggle.checked !== varianceEnabled) {
+        varianceToggle.checked = varianceEnabled;
     }
     const varianceLabel = document.getElementById('variance-label');
-    if (ev.current_variance_enabled) {
-        varianceLabel.textContent = ev.direct_mode ? '±1%' : '-1%';
+    if (varianceEnabled) {
+        varianceLabel.textContent = directMode ? '±1%' : '-1%';
     } else {
         varianceLabel.textContent = 'Off';
     }
