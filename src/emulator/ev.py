@@ -5,12 +5,19 @@ Simulates an electric vehicle's behavior including battery state of charge,
 charging acceptance, and connection state.
 """
 
+import random
 import threading
+import time
 
 # Charging curve constants
 TAPER_START_SOC = 80.0  # SoC percentage where charging starts to taper
 TAPER_RANGE = 20.0  # SoC range for tapering (80-100%)
 MAX_TAPER_FACTOR = 0.5  # Maximum power reduction during taper (50%)
+
+# Variance constants
+VARIANCE_INTERVAL_SEC = 1.0  # How often to update variance
+DIRECT_VARIANCE_RANGE = 0.01  # +/- 1% in direct mode
+BATTERY_VARIANCE_RANGE = 0.01  # -1% in battery mode
 
 
 class EVSimulator:
@@ -41,6 +48,15 @@ class EVSimulator:
 
         # Error modes
         self._diode_check_failed = False
+
+        # Direct control mode
+        self._direct_mode = False
+        self._direct_current_amps = 0.0
+
+        # Current variance
+        self._current_variance_enabled = False
+        self._variance_multiplier = 1.0
+        self._last_variance_time = time.time()
 
         # Thread safety
         self._lock = threading.Lock()
@@ -101,6 +117,41 @@ class EVSimulator:
         with self._lock:
             self._diode_check_failed = value
 
+    @property
+    def direct_mode(self) -> bool:
+        """Whether direct current control mode is active."""
+        with self._lock:
+            return self._direct_mode
+
+    @direct_mode.setter
+    def direct_mode(self, value: bool):
+        with self._lock:
+            self._direct_mode = value
+            self._variance_multiplier = 1.0
+
+    @property
+    def direct_current_amps(self) -> float:
+        """Target current in direct control mode (amps)."""
+        with self._lock:
+            return self._direct_current_amps
+
+    @direct_current_amps.setter
+    def direct_current_amps(self, value: float):
+        with self._lock:
+            self._direct_current_amps = max(0.0, value)
+
+    @property
+    def current_variance_enabled(self) -> bool:
+        """Whether random current variance is enabled."""
+        with self._lock:
+            return self._current_variance_enabled
+
+    @current_variance_enabled.setter
+    def current_variance_enabled(self, value: bool):
+        with self._lock:
+            self._current_variance_enabled = value
+            self._variance_multiplier = 1.0
+
     def get_pilot_resistance(self) -> str:
         """
         Get the pilot resistance state according to J1772.
@@ -120,6 +171,22 @@ class EVSimulator:
 
             return "B"
 
+    def _update_variance(self):
+        """Update the variance multiplier if enough time has elapsed."""
+        now = time.time()
+        if now - self._last_variance_time >= VARIANCE_INTERVAL_SEC:
+            self._last_variance_time = now
+            if self._direct_mode:
+                # +/- 1% in direct mode
+                self._variance_multiplier = 1.0 + random.uniform(
+                    -DIRECT_VARIANCE_RANGE, DIRECT_VARIANCE_RANGE
+                )
+            else:
+                # -1% in battery mode (only decrease)
+                self._variance_multiplier = 1.0 - random.uniform(
+                    0, BATTERY_VARIANCE_RANGE
+                )
+
     def update_charging(
         self, offered_current_amps: float, voltage: float, delta_time_sec: float
     ):
@@ -132,7 +199,24 @@ class EVSimulator:
             delta_time_sec: Time elapsed since last update in seconds
         """
         with self._lock:
-            if not self._connected or not self._requesting_charge or self._soc >= 100.0:
+            if not self._connected or not self._requesting_charge:
+                self._actual_charge_rate_kw = 0.0
+                return
+
+            if self._direct_mode:
+                # Direct control mode: use set current directly
+                actual_amps = self._direct_current_amps
+
+                # Apply variance if enabled
+                if self._current_variance_enabled:
+                    self._update_variance()
+                    actual_amps *= self._variance_multiplier
+
+                self._actual_charge_rate_kw = (actual_amps * voltage) / 1000.0
+                return
+
+            # Battery emulation mode
+            if self._soc >= 100.0:
                 self._actual_charge_rate_kw = 0.0
                 return
 
@@ -149,6 +233,11 @@ class EVSimulator:
                     - ((self._soc - TAPER_START_SOC) / TAPER_RANGE) * MAX_TAPER_FACTOR
                 )
                 actual_power_kw *= taper_factor
+
+            # Apply variance if enabled
+            if self._current_variance_enabled:
+                self._update_variance()
+                actual_power_kw *= self._variance_multiplier
 
             self._actual_charge_rate_kw = actual_power_kw
 
@@ -178,4 +267,7 @@ class EVSimulator:
                 "max_charge_rate_kw": self.max_charge_rate_kw,
                 "actual_charge_rate_kw": round(self._actual_charge_rate_kw, 2),
                 "diode_check_failed": self._diode_check_failed,
+                "direct_mode": self._direct_mode,
+                "direct_current_amps": round(self._direct_current_amps, 1),
+                "current_variance_enabled": self._current_variance_enabled,
             }

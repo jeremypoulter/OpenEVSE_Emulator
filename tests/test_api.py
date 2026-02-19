@@ -544,3 +544,144 @@ class TestEnableErrorHandling:
         data = json.loads(response.data)
         assert "error" in data
         assert data["success"] is False
+
+
+class TestDirectModeEndpoints:
+    """Test direct current control API endpoints."""
+
+    def test_set_direct_mode(self, api_client):
+        """Test POST /api/ev/mode endpoint."""
+        response = api_client.post(
+            "/api/ev/mode",
+            data=json.dumps({"direct_mode": True}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["success"] is True
+
+        # Verify it was set
+        status = api_client.get("/api/ev/status")
+        status_data = json.loads(status.data)
+        assert status_data["direct_mode"] is True
+
+    def test_set_direct_mode_off(self, api_client):
+        """Test switching back to battery mode."""
+        # Enable direct mode
+        api_client.post(
+            "/api/ev/mode",
+            data=json.dumps({"direct_mode": True}),
+            content_type="application/json",
+        )
+
+        # Disable direct mode
+        response = api_client.post(
+            "/api/ev/mode",
+            data=json.dumps({"direct_mode": False}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        status = api_client.get("/api/ev/status")
+        status_data = json.loads(status.data)
+        assert status_data["direct_mode"] is False
+
+    def test_set_direct_mode_missing_param(self, api_client):
+        """Test POST /api/ev/mode without required parameter."""
+        response = api_client.post(
+            "/api/ev/mode",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_set_direct_current(self, api_client):
+        """Test POST /api/ev/direct_current endpoint."""
+        response = api_client.post(
+            "/api/ev/direct_current",
+            data=json.dumps({"amps": 20.0}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["success"] is True
+
+        # Verify it was set
+        status = api_client.get("/api/ev/status")
+        status_data = json.loads(status.data)
+        assert status_data["direct_current_amps"] == 20.0
+
+    def test_set_direct_current_negative(self, api_client):
+        """Test POST /api/ev/direct_current with negative value."""
+        response = api_client.post(
+            "/api/ev/direct_current",
+            data=json.dumps({"amps": -5.0}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_set_direct_current_missing_param(self, api_client):
+        """Test POST /api/ev/direct_current without required parameter."""
+        response = api_client.post(
+            "/api/ev/direct_current",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_set_current_variance(self, api_client):
+        """Test POST /api/ev/current_variance endpoint."""
+        response = api_client.post(
+            "/api/ev/current_variance",
+            data=json.dumps({"enabled": True}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["success"] is True
+
+        # Verify it was set
+        status = api_client.get("/api/ev/status")
+        status_data = json.loads(status.data)
+        assert status_data["current_variance_enabled"] is True
+
+    def test_set_current_variance_off(self, api_client):
+        """Test disabling current variance."""
+        # Enable first
+        api_client.post(
+            "/api/ev/current_variance",
+            data=json.dumps({"enabled": True}),
+            content_type="application/json",
+        )
+
+        # Disable
+        response = api_client.post(
+            "/api/ev/current_variance",
+            data=json.dumps({"enabled": False}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        status = api_client.get("/api/ev/status")
+        status_data = json.loads(status.data)
+        assert status_data["current_variance_enabled"] is False
+
+    def test_set_current_variance_missing_param(self, api_client):
+        """Test POST /api/ev/current_variance without required parameter."""
+        response = api_client.post(
+            "/api/ev/current_variance",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_status_includes_new_fields(self, api_client):
+        """Test that /api/status includes direct mode fields."""
+        response = api_client.get("/api/status")
+        assert response.status_code == 200
+
+        data = json.loads(response.data)
+        ev = data["ev"]
+        assert "direct_mode" in ev
+        assert "direct_current_amps" in ev
+        assert "current_variance_enabled" in ev

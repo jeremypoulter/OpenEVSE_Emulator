@@ -101,10 +101,42 @@
                     <button id="btn-request-charge" class="btn btn-success">Request Charge</button>
                     <button id="btn-stop-charge" class="btn btn-warning">Stop Charge</button>
                 </div>
-                
+
                 <div class="control-group">
-                    <label for="battery-soc">Battery SoC: <span id="battery-soc-value">50</span>%</label>
-                    <input type="range" id="battery-soc" min="0" max="100" value="50" step="1">
+                    <label class="toggle-label">
+                        <span>Current Control Mode:</span>
+                        <span id="mode-label" class="mode-indicator">Battery Emulation</span>
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" id="direct-mode-toggle">
+                        <span class="slider-toggle round"></span>
+                    </label>
+                    <span class="switch-label">Direct Control</span>
+                </div>
+
+                <div id="battery-controls">
+                    <div class="control-group">
+                        <label for="battery-soc">Battery SoC: <span id="battery-soc-value">50</span>%</label>
+                        <input type="range" id="battery-soc" min="0" max="100" value="50" step="1">
+                    </div>
+                </div>
+
+                <div id="direct-controls" style="display: none;">
+                    <div class="control-group">
+                        <label for="direct-current">Charge Current: <span id="direct-current-value">0</span> A</label>
+                        <input type="range" id="direct-current" min="0" max="35" value="0" step="0.1">
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="toggle-label">
+                        <span>Current Variance:</span>
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" id="variance-toggle">
+                        <span class="slider-toggle round"></span>
+                    </label>
+                    <span class="switch-label" id="variance-label">Off</span>
                 </div>
             </div>
         </div>

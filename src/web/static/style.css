@@ -408,3 +408,77 @@ footer a:hover {
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     }
 }
+
+/* Toggle Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 26px;
+    vertical-align: middle;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider-toggle {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.3s;
+}
+
+.slider-toggle.round {
+    border-radius: 26px;
+}
+
+.slider-toggle.round::before {
+    border-radius: 50%;
+}
+
+.slider-toggle::before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+}
+
+input:checked + .slider-toggle {
+    background-color: #667eea;
+}
+
+input:checked + .slider-toggle::before {
+    transform: translateX(24px);
+}
+
+.switch-label {
+    font-weight: 600;
+    color: #555;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 4px;
+}
+
+.mode-indicator {
+    font-weight: 700;
+    color: #667eea;
+}

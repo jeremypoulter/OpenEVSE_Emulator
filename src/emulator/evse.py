@@ -425,8 +425,9 @@ class EVSEStateMachine:
                 self._state = EVSEState.STATE_B_CONNECTED
                 self._actual_current_amps = 0.0
             elif ev_pilot_state == "C":
+                if old_state != EVSEState.STATE_C_CHARGING:
+                    self._actual_current_amps = self._current_capacity_amps
                 self._state = EVSEState.STATE_C_CHARGING
-                self._actual_current_amps = self._current_capacity_amps
                 if self._session_start_time == 0:
                     self._session_start_time = time.time()
             elif ev_pilot_state == "D":

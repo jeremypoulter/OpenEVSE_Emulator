@@ -34,6 +34,27 @@ function initializeControls() {
     document.getElementById('battery-soc').addEventListener('change', function(e) {
         apiCall('/api/ev/soc', 'POST', { soc: parseFloat(e.target.value) });
     });
+
+    // Direct mode toggle
+    document.getElementById('direct-mode-toggle').addEventListener('change', function(e) {
+        const directMode = e.target.checked;
+        apiCall('/api/ev/mode', 'POST', { direct_mode: directMode });
+        updateModeUI(directMode);
+    });
+
+    // Direct current slider
+    document.getElementById('direct-current').addEventListener('input', function(e) {
+        document.getElementById('direct-current-value').textContent = parseFloat(e.target.value).toFixed(1);
+    });
+
+    document.getElementById('direct-current').addEventListener('change', function(e) {
+        apiCall('/api/ev/direct_current', 'POST', { amps: parseFloat(e.target.value) });
+    });
+
+    // Current variance toggle
+    document.getElementById('variance-toggle').addEventListener('change', function(e) {
+        apiCall('/api/ev/current_variance', 'POST', { enabled: e.target.checked });
+    });
     
     // Error simulation
     document.querySelectorAll('.btn-danger[data-error]').forEach(btn => {
@@ -54,6 +75,23 @@ function initializeControls() {
             sendSerialCommand();
         }
     });
+}
+
+// Update UI based on current control mode
+function updateModeUI(directMode) {
+    const batteryControls = document.getElementById('battery-controls');
+    const directControls = document.getElementById('direct-controls');
+    const modeLabel = document.getElementById('mode-label');
+
+    if (directMode) {
+        batteryControls.style.display = 'none';
+        directControls.style.display = 'block';
+        modeLabel.textContent = 'Direct Control';
+    } else {
+        batteryControls.style.display = 'block';
+        directControls.style.display = 'none';
+        modeLabel.textContent = 'Battery Emulation';
+    }
 }
 
 // Initialize WebSocket event listeners
@@ -116,6 +154,9 @@ async function updateStatus() {
 function updateDisplay() {
     const evse = currentState.evse;
     const ev = currentState.ev;
+
+    // Guard: skip if status data not yet loaded
+    if (!evse || !ev || evse.actual_current === undefined) return;
 
     // LCD Display
     const row1 = evse.lcd_row1 || "OpenEVSE      ";
@@ -231,6 +272,35 @@ function updateDisplay() {
     // EV sliders
     document.getElementById('battery-soc').value = ev.soc;
     document.getElementById('battery-soc-value').textContent = ev.soc;
+
+    // Sync direct mode UI
+    const directModeToggle = document.getElementById('direct-mode-toggle');
+    const directMode = ev.direct_mode || false;
+    if (directModeToggle.checked !== directMode) {
+        directModeToggle.checked = directMode;
+        updateModeUI(directMode);
+    }
+
+    // Update direct current slider max to current_capacity * 1.1
+    const maxDirectCurrent = Math.ceil(evse.current_capacity * 1.1 * 10) / 10;
+    const directCurrentSlider = document.getElementById('direct-current');
+    const directCurrentAmps = ev.direct_current_amps || 0;
+    directCurrentSlider.max = maxDirectCurrent;
+    directCurrentSlider.value = directCurrentAmps;
+    document.getElementById('direct-current-value').textContent = directCurrentAmps.toFixed(1);
+
+    // Sync variance toggle
+    const varianceToggle = document.getElementById('variance-toggle');
+    const varianceEnabled = ev.current_variance_enabled || false;
+    if (varianceToggle.checked !== varianceEnabled) {
+        varianceToggle.checked = varianceEnabled;
+    }
+    const varianceLabel = document.getElementById('variance-label');
+    if (varianceEnabled) {
+        varianceLabel.textContent = directMode ? '±1%' : '-1%';
+    } else {
+        varianceLabel.textContent = 'Off';
+    }
 }
 
 // Format time in HH:MM:SS
