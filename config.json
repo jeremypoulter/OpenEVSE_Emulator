@@ -3,7 +3,7 @@
     "mode": "pty",
     "tcp_port": 8023,
     "baudrate": 115200,
-    "pty_path": null,
+    "pty_path": "/tmp/rapi_pty",
     "reconnect_timeout_sec": 60,
     "reconnect_backoff_ms": 1000
   },
