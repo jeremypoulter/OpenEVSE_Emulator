@@ -228,10 +228,7 @@ class EVSimulator:
 
             # Apply charging curve (taper at high SoC)
             if self._soc > TAPER_START_SOC:
-                taper_factor = (
-                    1.0
-                    - ((self._soc - TAPER_START_SOC) / TAPER_RANGE)
-                )
+                taper_factor = 1.0 - ((self._soc - TAPER_START_SOC) / TAPER_RANGE)
                 taper_factor = max(0.0, taper_factor)
                 actual_power_kw *= taper_factor
 
