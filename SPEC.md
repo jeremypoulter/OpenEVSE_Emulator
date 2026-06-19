@@ -74,8 +74,9 @@ The RAPI protocol uses ASCII commands with the following format:
 | `$SE <0\|1>` | Set echo mode | `$OK` |
 | `$ST <minutes>` | Set time limit | `$OK` or `$NK` |
 | `$SH <kwh>` | Set kWh limit | `$OK` or `$NK` |
-| `$FE` | Enable charging (sleep → active) | `$OK` or `$NK` |
-| `$FD` | Disable charging (sleep mode) | `$OK` |
+| `$FE` | Enable charging (exit sleep/disabled) | `$OK` or `$NK` |
+| `$FD` | Disable EVSE (reports Disabled, 0xFF) | `$OK` |
+| `$FS` | Sleep EVSE (reports Sleep, 0xFE) | `$OK` |
 | `$FR` | Reset (restart EVSE) | `$OK` |
 | `$F1` | Enable GFCI self-test | `$OK` |
 | `$F0` | Disable GFCI self-test | `$OK` |

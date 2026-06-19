@@ -381,12 +381,14 @@ class EVSEStateMachine:
         """Sleep the EVSE ($FS) - reports STATE_SLEEP (254)."""
         with self._lock:
             self._sleep_mode = True
+            self._disabled = False
             self._actual_current_amps = 0.0
 
     def set_disabled(self):
         """Disable the EVSE ($FD) - reports STATE_DISABLED (255)."""
         with self._lock:
             self._disabled = True
+            self._sleep_mode = False
             self._actual_current_amps = 0.0
 
     def reset(self):

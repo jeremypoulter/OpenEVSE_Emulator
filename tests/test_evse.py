@@ -57,6 +57,27 @@ def test_enable_disable():
     assert evse.state != EVSEState.STATE_SLEEP
 
 
+def test_sleep_and_disabled_are_mutually_exclusive():
+    """Test that $FS (sleep) and $FD (disabled) do not stack."""
+    evse = EVSEStateMachine()
+
+    # Disable then sleep -> should report sleep, not disabled
+    evse.set_disabled()
+    assert evse.state == EVSEState.STATE_DISABLED
+    evse.disable()
+    assert evse.state == EVSEState.STATE_SLEEP
+
+    # Sleep then disable -> should report disabled, not sleep
+    evse.disable()
+    assert evse.state == EVSEState.STATE_SLEEP
+    evse.set_disabled()
+    assert evse.state == EVSEState.STATE_DISABLED
+
+    # Enable clears both
+    assert evse.enable() is True
+    assert evse.state == EVSEState.STATE_A_NOT_CONNECTED
+
+
 def test_state_transitions():
     """Test EVSE state transitions based on EV pilot."""
     evse = EVSEStateMachine()
