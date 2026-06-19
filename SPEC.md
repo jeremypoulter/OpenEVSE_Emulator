@@ -97,8 +97,14 @@ The emulator implements the SAE J1772 charging states:
 | B | 0x02 | Connected (Not Charging) | +9V | Yellow |
 | C | 0x03 | Charging | +6V | Blue |
 | D | 0x04 | Ventilation Required | +3V | Red |
-| Error | 0xFE | EVSE Error | N/A | Red (flashing) |
-| Sleep | 0xFD | Sleep Mode | N/A | Off |
+| Diode Check Failed | 0x05 | Diode Check Fault | N/A | Red (flashing) |
+| GFCI Fault | 0x06 | GFCI Fault | N/A | Red (flashing) |
+| No Ground | 0x07 | No Ground Fault | N/A | Red (flashing) |
+| Stuck Relay | 0x08 | Stuck Relay Fault | N/A | Red (flashing) |
+| GFCI Self-Test Failed | 0x09 | GFCI Self-Test Fault | N/A | Red (flashing) |
+| Over Temperature | 0x0A | Over Temperature Fault | N/A | Red (flashing) |
+| Sleep | 0xFE | Sleep Mode | N/A | Off |
+| Disabled | 0xFF | Disabled | N/A | Off |
 
 State transitions are triggered by:
 

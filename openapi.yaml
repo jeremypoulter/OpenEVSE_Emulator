@@ -461,7 +461,7 @@ components:
       properties:
         state:
           type: integer
-          description: EVSE state code (1=Not Connected, 2=Connected, 3=Charging, 4=Vent Required, 253=Sleep, 254=Error)
+          description: EVSE state code (1=Not Connected, 2=Connected, 3=Charging, 4=Vent Required, 5=Diode Check Failed, 6=GFCI Fault, 7=No Ground, 8=Stuck Relay, 9=GFCI Self-Test Failed, 10=Over Temperature, 254=Sleep, 255=Disabled)
           example: 1
         state_name:
           type: string

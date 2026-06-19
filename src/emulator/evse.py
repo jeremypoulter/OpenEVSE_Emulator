@@ -15,14 +15,24 @@ AMBIENT_TEMP = 200  # 20.0°C
 
 
 class EVSEState(IntEnum):
-    """EVSE states according to SAE J1772."""
+    """EVSE states using the OpenEVSE / SAE J1772 numeric state codes.
+
+    These match the values reported by real OpenEVSE hardware over RAPI so the
+    ESP32 firmware interprets them correctly (e.g. 254=sleeping, 255=disabled).
+    """
 
     STATE_A_NOT_CONNECTED = 0x01
     STATE_B_CONNECTED = 0x02
     STATE_C_CHARGING = 0x03
     STATE_D_VENT_REQUIRED = 0x04
-    STATE_SLEEP = 0xFD
-    STATE_ERROR = 0xFE
+    STATE_DIODE_CHECK_FAILED = 0x05
+    STATE_GFCI_FAULT = 0x06
+    STATE_NO_GROUND = 0x07
+    STATE_STUCK_RELAY = 0x08
+    STATE_GFCI_SELF_TEST_FAILED = 0x09
+    STATE_OVER_TEMPERATURE = 0x0A
+    STATE_SLEEP = 0xFE
+    STATE_DISABLED = 0xFF
 
 
 class ErrorFlags(IntEnum):
@@ -34,6 +44,18 @@ class ErrorFlags(IntEnum):
     DIODE_CHECK_FAILED = 0x08
     OVER_TEMPERATURE = 0x10
     GFI_SELF_TEST_FAILED = 0x20
+
+
+# Map an active error flag to the OpenEVSE fault state it should report.
+# Ordered by descending severity so the most serious active fault wins.
+ERROR_FLAG_TO_STATE = [
+    (ErrorFlags.OVER_TEMPERATURE, EVSEState.STATE_OVER_TEMPERATURE),
+    (ErrorFlags.GFI_SELF_TEST_FAILED, EVSEState.STATE_GFCI_SELF_TEST_FAILED),
+    (ErrorFlags.STUCK_RELAY, EVSEState.STATE_STUCK_RELAY),
+    (ErrorFlags.NO_GROUND, EVSEState.STATE_NO_GROUND),
+    (ErrorFlags.GFCI_TRIP, EVSEState.STATE_GFCI_FAULT),
+    (ErrorFlags.DIODE_CHECK_FAILED, EVSEState.STATE_DIODE_CHECK_FAILED),
+]
 
 
 class EVSEStateMachine:
@@ -55,6 +77,7 @@ class EVSEStateMachine:
         # EVSE state
         self._state = EVSEState.STATE_A_NOT_CONNECTED
         self._sleep_mode = False
+        self._disabled = False
 
         # Current and voltage
         self._current_capacity_amps = 32
@@ -136,12 +159,24 @@ class EVSEStateMachine:
         finally:
             self._lock.acquire()
 
+    def _error_state(self) -> EVSEState:
+        """Return the OpenEVSE fault state for active error flags.
+
+        The internal lock must be held by the caller.
+        """
+        for flag, state in ERROR_FLAG_TO_STATE:
+            if self._error_flags & flag:
+                return state
+        return self._state
+
     @property
     def state(self) -> EVSEState:
         """Current EVSE state."""
         with self._lock:
             if self._error_flags != 0:
-                return EVSEState.STATE_ERROR
+                return self._error_state()
+            if self._disabled:
+                return EVSEState.STATE_DISABLED
             if self._sleep_mode:
                 return EVSEState.STATE_SLEEP
             return self._state
@@ -330,7 +365,7 @@ class EVSEStateMachine:
 
     def enable(self) -> bool:
         """
-        Enable charging (exit sleep mode).
+        Enable charging (exit sleep/disabled mode).
 
         Returns:
             True if successful, False otherwise
@@ -339,12 +374,19 @@ class EVSEStateMachine:
             if self._error_flags != 0:
                 return False
             self._sleep_mode = False
+            self._disabled = False
             return True
 
     def disable(self):
-        """Disable charging (enter sleep mode)."""
+        """Sleep the EVSE ($FS) - reports STATE_SLEEP (254)."""
         with self._lock:
             self._sleep_mode = True
+            self._actual_current_amps = 0.0
+
+    def set_disabled(self):
+        """Disable the EVSE ($FD) - reports STATE_DISABLED (255)."""
+        with self._lock:
+            self._disabled = True
             self._actual_current_amps = 0.0
 
     def reset(self):
@@ -377,7 +419,7 @@ class EVSEStateMachine:
 
         # Notify state change
         if self._state_change_callbacks:
-            self._notify_state_change(EVSEState.STATE_ERROR)
+            self._notify_state_change(self._error_state())
 
     def clear_errors(self):
         """Clear all error flags."""
@@ -388,7 +430,9 @@ class EVSEStateMachine:
             if was_error and self._state_change_callbacks:
                 # Determine new state after clearing errors
                 new_state = self._state
-                if self._sleep_mode:
+                if self._disabled:
+                    new_state = EVSEState.STATE_DISABLED
+                elif self._sleep_mode:
                     new_state = EVSEState.STATE_SLEEP
                 self._notify_state_change(new_state)
 
@@ -404,7 +448,7 @@ class EVSEStateMachine:
         new_state = None
 
         with self._lock:
-            if self._sleep_mode:
+            if self._sleep_mode or self._disabled:
                 return
 
             old_state = self._state
@@ -441,7 +485,9 @@ class EVSEStateMachine:
             )
             if state_changed and self._state_change_callbacks:
                 notify_callback = True
-                new_state = self._state if self._error_flags != 0 else self._state
+                new_state = (
+                    self._error_state() if self._error_flags != 0 else self._state
+                )
 
         # Call callbacks outside of lock to avoid deadlock
         if notify_callback:
@@ -508,7 +554,9 @@ class EVSEStateMachine:
             # Determine current state (without calling property which would deadlock)
             current_state = self._state
             if self._error_flags != 0:
-                current_state = EVSEState.STATE_ERROR
+                current_state = self._error_state()
+            elif self._disabled:
+                current_state = EVSEState.STATE_DISABLED
             elif self._sleep_mode:
                 current_state = EVSEState.STATE_SLEEP
 

@@ -87,7 +87,7 @@ def test_error_conditions():
 
     # Trigger GFCI error
     evse.trigger_error(ErrorFlags.GFCI_TRIP)
-    assert evse.state == EVSEState.STATE_ERROR
+    assert evse.state == EVSEState.STATE_GFCI_FAULT
     status = evse.get_status()
     assert status["error_flags"] & ErrorFlags.GFCI_TRIP
     assert status["gfci_count"] == 1
@@ -109,7 +109,7 @@ def test_error_prevents_enable():
 
     # Try to enable (should fail)
     assert evse.enable() is False
-    assert evse.state == EVSEState.STATE_ERROR
+    assert evse.state == EVSEState.STATE_NO_GROUND
 
     # Clear error and try again
     evse.clear_errors()
@@ -123,7 +123,7 @@ def test_disconnect_clears_error():
     # Connect and trigger an error
     evse.update_state("B")
     evse.trigger_error(ErrorFlags.DIODE_CHECK_FAILED)
-    assert evse.state == EVSEState.STATE_ERROR
+    assert evse.state == EVSEState.STATE_DIODE_CHECK_FAILED
     status = evse.get_status()
     assert status["error_flags"] & ErrorFlags.DIODE_CHECK_FAILED
 
@@ -505,7 +505,7 @@ def test_state_d_vent_required():
 
     # Simulate State D
     evse.update_state("D")
-    assert evse.state == EVSEState.STATE_ERROR
+    assert evse.state == EVSEState.STATE_DIODE_CHECK_FAILED
     status = evse.get_status()
     assert status["error_flags"] & ErrorFlags.DIODE_CHECK_FAILED
 

@@ -38,6 +38,8 @@ class TestRAPIIntegration:
         evse.firmware_version = "TEST1.0"
         evse.protocol_version = "5.2.1"
         evse.current_capacity_amps = 16
+        evse.set_current_capacity.return_value = (True, 16)
+        evse.set_max_capacity.return_value = (True, 16)
         evse.get_vflags.return_value = 0x0000  # No errors or special flags
 
         ev = MagicMock()

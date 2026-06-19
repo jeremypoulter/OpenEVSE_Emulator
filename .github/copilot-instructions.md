@@ -112,8 +112,8 @@ npm install -g markdownlint-cli
 - State B (0x02): Connected, not charging  
 - State C (0x03): Charging
 - State D (0x04): Ventilation required
-- State 0xFE: Error
-- State 0xFD: Sleep mode
+- State 0xFE: Sleep mode
+- State 0xFF: Disabled
 
 ### Error Conditions
 
