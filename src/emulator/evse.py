@@ -477,6 +477,10 @@ class EVSEStateMachine:
                 if self._session_start_time == 0:
                     self._session_start_time = time.time()
             elif ev_pilot_state == "D":
+                # The EV simulator only drives pilot "D" when its diode check
+                # fails (see EVSimulator.get_pilot_resistance), so this maps to
+                # the OpenEVSE diode-check fault state (0x05), matching real
+                # hardware behaviour rather than the unused vent-required code.
                 self._state = EVSEState.STATE_D_VENT_REQUIRED
                 self._actual_current_amps = 0.0
                 self._trigger_error_internal(ErrorFlags.DIODE_CHECK_FAILED)

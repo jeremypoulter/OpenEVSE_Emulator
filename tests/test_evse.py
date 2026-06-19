@@ -73,6 +73,10 @@ def test_sleep_and_disabled_are_mutually_exclusive():
     evse.set_disabled()
     assert evse.state == EVSEState.STATE_DISABLED
 
+    # update_state is ignored while disabled
+    evse.update_state("C")
+    assert evse.state == EVSEState.STATE_DISABLED
+
     # Enable clears both
     assert evse.enable() is True
     assert evse.state == EVSEState.STATE_A_NOT_CONNECTED
@@ -520,11 +524,11 @@ def test_error_clearing_in_sleep_mode():
     assert EVSEState.STATE_SLEEP in callback_states
 
 
-def test_state_d_vent_required():
-    """Test State D (ventilation required) triggers diode check error."""
+def test_pilot_d_diode_check_failed():
+    """Test pilot state D (EV diode check failure) reports the diode fault."""
     evse = EVSEStateMachine()
 
-    # Simulate State D
+    # The EV only drives pilot "D" when its diode check fails.
     evse.update_state("D")
     assert evse.state == EVSEState.STATE_DIODE_CHECK_FAILED
     status = evse.get_status()

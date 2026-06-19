@@ -85,8 +85,9 @@ The RAPI protocol uses ASCII commands with the following format:
 
 - `$SC` clamps to the allowed range; if clamped it returns `$NK <ampsset>`. The `M` option sets the
   maximum configured capacity once and locks it; subsequent `$SC M` calls return `$NK <current_max>`.
-- `$GC` reports: minimum allowed, hardware maximum, pilot-advertised, and configured maximum
-  capacities (all decimal amps).
+- `$GC` reports: minimum allowed, hardware maximum, pilot-advertised, and the configured charging
+  current (`cmaxamps`, as set by `$SC`) — all decimal amps. This matches OpenEVSE hardware, where
+  `cmaxamps` tracks the active `$SC` setting (read back by the firmware as `max_current_soft`).
 
 ### EVSE States
 
