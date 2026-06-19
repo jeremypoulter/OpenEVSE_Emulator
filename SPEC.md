@@ -103,8 +103,8 @@ The emulator implements the SAE J1772 charging states:
 | Stuck Relay | 0x08 | Stuck Relay Fault | N/A | Red (flashing) |
 | GFCI Self-Test Failed | 0x09 | GFCI Self-Test Fault | N/A | Red (flashing) |
 | Over Temperature | 0x0A | Over Temperature Fault | N/A | Red (flashing) |
-| Sleep | 0xFE | Sleep Mode | N/A | Off |
-| Disabled | 0xFF | Disabled | N/A | Off |
+| Sleep | 0xFE | Sleep Mode ($FS) | N/A | Off |
+| Disabled | 0xFF | Disabled ($FD) | N/A | Off |
 
 State transitions are triggered by:
 
