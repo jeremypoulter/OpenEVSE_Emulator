@@ -112,8 +112,14 @@ npm install -g markdownlint-cli
 - State B (0x02): Connected, not charging  
 - State C (0x03): Charging
 - State D (0x04): Ventilation required
-- State 0xFE: Error
-- State 0xFD: Sleep mode
+- State 0x05: Diode check failed
+- State 0x06: GFCI fault
+- State 0x07: No ground
+- State 0x08: Stuck relay
+- State 0x09: GFCI self-test failed
+- State 0x0A: Over temperature
+- State 0xFE: Sleep mode
+- State 0xFF: Disabled
 
 ### Error Conditions
 

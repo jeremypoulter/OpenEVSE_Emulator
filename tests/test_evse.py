@@ -57,6 +57,31 @@ def test_enable_disable():
     assert evse.state != EVSEState.STATE_SLEEP
 
 
+def test_sleep_and_disabled_are_mutually_exclusive():
+    """Test that $FS (sleep) and $FD (disabled) do not stack."""
+    evse = EVSEStateMachine()
+
+    # Disable then sleep -> should report sleep, not disabled
+    evse.set_disabled()
+    assert evse.state == EVSEState.STATE_DISABLED
+    evse.disable()
+    assert evse.state == EVSEState.STATE_SLEEP
+
+    # Sleep then disable -> should report disabled, not sleep
+    evse.disable()
+    assert evse.state == EVSEState.STATE_SLEEP
+    evse.set_disabled()
+    assert evse.state == EVSEState.STATE_DISABLED
+
+    # update_state is ignored while disabled
+    evse.update_state("C")
+    assert evse.state == EVSEState.STATE_DISABLED
+
+    # Enable clears both
+    assert evse.enable() is True
+    assert evse.state == EVSEState.STATE_A_NOT_CONNECTED
+
+
 def test_state_transitions():
     """Test EVSE state transitions based on EV pilot."""
     evse = EVSEStateMachine()
@@ -87,7 +112,7 @@ def test_error_conditions():
 
     # Trigger GFCI error
     evse.trigger_error(ErrorFlags.GFCI_TRIP)
-    assert evse.state == EVSEState.STATE_ERROR
+    assert evse.state == EVSEState.STATE_GFCI_FAULT
     status = evse.get_status()
     assert status["error_flags"] & ErrorFlags.GFCI_TRIP
     assert status["gfci_count"] == 1
@@ -109,7 +134,7 @@ def test_error_prevents_enable():
 
     # Try to enable (should fail)
     assert evse.enable() is False
-    assert evse.state == EVSEState.STATE_ERROR
+    assert evse.state == EVSEState.STATE_NO_GROUND
 
     # Clear error and try again
     evse.clear_errors()
@@ -123,7 +148,7 @@ def test_disconnect_clears_error():
     # Connect and trigger an error
     evse.update_state("B")
     evse.trigger_error(ErrorFlags.DIODE_CHECK_FAILED)
-    assert evse.state == EVSEState.STATE_ERROR
+    assert evse.state == EVSEState.STATE_DIODE_CHECK_FAILED
     status = evse.get_status()
     assert status["error_flags"] & ErrorFlags.DIODE_CHECK_FAILED
 
@@ -499,13 +524,13 @@ def test_error_clearing_in_sleep_mode():
     assert EVSEState.STATE_SLEEP in callback_states
 
 
-def test_state_d_vent_required():
-    """Test State D (ventilation required) triggers diode check error."""
+def test_pilot_d_diode_check_failed():
+    """Test pilot state D (EV diode check failure) reports the diode fault."""
     evse = EVSEStateMachine()
 
-    # Simulate State D
+    # The EV only drives pilot "D" when its diode check fails.
     evse.update_state("D")
-    assert evse.state == EVSEState.STATE_ERROR
+    assert evse.state == EVSEState.STATE_DIODE_CHECK_FAILED
     status = evse.get_status()
     assert status["error_flags"] & ErrorFlags.DIODE_CHECK_FAILED
 

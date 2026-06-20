@@ -74,8 +74,9 @@ The RAPI protocol uses ASCII commands with the following format:
 | `$SE <0\|1>` | Set echo mode | `$OK` |
 | `$ST <minutes>` | Set time limit | `$OK` or `$NK` |
 | `$SH <kwh>` | Set kWh limit | `$OK` or `$NK` |
-| `$FE` | Enable charging (sleep → active) | `$OK` or `$NK` |
-| `$FD` | Disable charging (sleep mode) | `$OK` |
+| `$FE` | Enable charging (exit sleep/disabled) | `$OK` or `$NK` |
+| `$FD` | Disable EVSE (reports Disabled, 0xFF) | `$OK` |
+| `$FS` | Sleep EVSE (reports Sleep, 0xFE) | `$OK` |
 | `$FR` | Reset (restart EVSE) | `$OK` |
 | `$F1` | Enable GFCI self-test | `$OK` |
 | `$F0` | Disable GFCI self-test | `$OK` |
@@ -84,8 +85,9 @@ The RAPI protocol uses ASCII commands with the following format:
 
 - `$SC` clamps to the allowed range; if clamped it returns `$NK <ampsset>`. The `M` option sets the
   maximum configured capacity once and locks it; subsequent `$SC M` calls return `$NK <current_max>`.
-- `$GC` reports: minimum allowed, hardware maximum, pilot-advertised, and configured maximum
-  capacities (all decimal amps).
+- `$GC` reports: minimum allowed, hardware maximum, pilot-advertised, and the configured charging
+  current (`cmaxamps`, as set by `$SC`) — all decimal amps. This matches OpenEVSE hardware, where
+  `cmaxamps` tracks the active `$SC` setting (read back by the firmware as `max_current_soft`).
 
 ### EVSE States
 
@@ -97,8 +99,14 @@ The emulator implements the SAE J1772 charging states:
 | B | 0x02 | Connected (Not Charging) | +9V | Yellow |
 | C | 0x03 | Charging | +6V | Blue |
 | D | 0x04 | Ventilation Required | +3V | Red |
-| Error | 0xFE | EVSE Error | N/A | Red (flashing) |
-| Sleep | 0xFD | Sleep Mode | N/A | Off |
+| Diode Check Failed | 0x05 | Diode Check Fault | N/A | Red (flashing) |
+| GFCI Fault | 0x06 | GFCI Fault | N/A | Red (flashing) |
+| No Ground | 0x07 | No Ground Fault | N/A | Red (flashing) |
+| Stuck Relay | 0x08 | Stuck Relay Fault | N/A | Red (flashing) |
+| GFCI Self-Test Failed | 0x09 | GFCI Self-Test Fault | N/A | Red (flashing) |
+| Over Temperature | 0x0A | Over Temperature Fault | N/A | Red (flashing) |
+| Sleep | 0xFE | Sleep Mode ($FS) | N/A | Off |
+| Disabled | 0xFF | Disabled ($FD) | N/A | Off |
 
 State transitions are triggered by:
 

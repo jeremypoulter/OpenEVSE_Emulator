@@ -53,7 +53,7 @@ class RAPIHandler:
             "GI": self._cmd_get_mcu_id,
             "GT": self._cmd_get_time_limit,
             "GH": self._cmd_get_kwh_limit,
-            "SC": self._cmd_set_current,
+            "SC": self._cmd_set_current_capacity,
             "SL": self._cmd_set_service_level,
             "SE": self._cmd_set_echo,
             "ST": self._cmd_set_time_limit,
@@ -289,8 +289,10 @@ class RAPIHandler:
         min_amps = self.evse.min_capacity_amps
         max_hw_amps = self.evse.max_hw_capacity_amps
         pilot_amps = self.evse.pilot_capacity_amps
-        max_config_amps = self.evse.max_configured_capacity_amps
-        return f"{RAPI_OK_RESPONSE} {min_amps} {max_hw_amps} {pilot_amps} {max_config_amps}"
+        # cmaxamps reports the configured charging current set via $SC, which is
+        # what the ESP32 firmware reads back as max_current_soft.
+        current_config_amps = self.evse.current_capacity_amps
+        return f"{RAPI_OK_RESPONSE} {min_amps} {max_hw_amps} {pilot_amps} {current_config_amps}"
 
     def _cmd_set_current_capacity(self, params: list) -> str:
         """$SC amps [V|M] - Set current capacity.
@@ -351,20 +353,6 @@ class RAPIHandler:
         return "$OK 0"
 
     # Control Commands
-
-    def _cmd_set_current(self, params: list) -> str:
-        """$SC <amps> - Set current capacity."""
-        if not params:
-            return RAPI_ERROR_RESPONSE
-
-        try:
-            amps = int(params[0])
-            if amps < 6 or amps > 80:
-                return RAPI_ERROR_RESPONSE
-            self.evse.current_capacity_amps = amps
-            return RAPI_OK_RESPONSE
-        except (ValueError, IndexError):
-            return RAPI_ERROR_RESPONSE
 
     def _cmd_set_service_level(self, params: list) -> str:
         """$SL <level> - Set service level (1=L1, 2=L2, A=Auto)."""
@@ -450,12 +438,12 @@ class RAPIHandler:
         return RAPI_ERROR_RESPONSE
 
     def _cmd_disable(self, params: list) -> str:
-        """$FD - Disable charging (sleep mode)."""
-        self.evse.disable()
+        """$FD - Disable the EVSE (reports STATE_DISABLED / 255)."""
+        self.evse.set_disabled()
         return RAPI_OK_RESPONSE
 
     def _cmd_sleep(self, params: list) -> str:
-        """$FS - Sleep EVSE (same as disable)."""
+        """$FS - Sleep the EVSE (reports STATE_SLEEP / 254)."""
         self.evse.disable()
         return RAPI_OK_RESPONSE
 
