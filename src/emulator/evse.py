@@ -478,9 +478,11 @@ class EVSEStateMachine:
                     self._session_start_time = time.time()
             elif ev_pilot_state == "D":
                 # The EV simulator drives pilot "D" only when its diode check fails
-                # (see EVSimulator.get_pilot_resistance). We keep the base pilot
-                # state as "D" internally, but the active DIODE_CHECK_FAILED error
-                # flag causes the externally reported EVSE state to be 0x05.
+                # (see EVSimulator.get_pilot_resistance). Demote to connected-but-not-
+                # charging so get_vflags() does not set ECVF_CHARGING_ON, then trigger
+                # the fault; the active DIODE_CHECK_FAILED error flag causes the
+                # externally reported EVSE state to be 0x05.
+                self._state = EVSEState.STATE_B_CONNECTED
                 self._actual_current_amps = 0.0
                 self._trigger_error_internal(ErrorFlags.DIODE_CHECK_FAILED)
 
