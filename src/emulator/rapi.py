@@ -291,8 +291,8 @@ class RAPIHandler:
         pilot_amps = self.evse.pilot_capacity_amps
         # cmaxamps reports the configured charging current set via $SC, which is
         # what the ESP32 firmware reads back as max_current_soft.
-        max_config_amps = self.evse.current_capacity_amps
-        return f"{RAPI_OK_RESPONSE} {min_amps} {max_hw_amps} {pilot_amps} {max_config_amps}"
+        current_config_amps = self.evse.current_capacity_amps
+        return f"{RAPI_OK_RESPONSE} {min_amps} {max_hw_amps} {pilot_amps} {current_config_amps}"
 
     def _cmd_set_current_capacity(self, params: list) -> str:
         """$SC amps [V|M] - Set current capacity.
