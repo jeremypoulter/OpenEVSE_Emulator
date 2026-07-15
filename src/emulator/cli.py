@@ -93,7 +93,7 @@ Examples:
         dest="evse_firmware_version",
         choices=SUPPORTED_FIRMWARE_VERSIONS,
         default=argparse.SUPPRESS,
-        help="EVSE firmware version to emulate (default: 8.2.3)",
+        help="EVSE firmware version to emulate (application default: 8.2.3)",
     )
     parser.add_argument(
         "--evse-protocol-version",
