@@ -399,6 +399,28 @@ ws.onmessage = (event) => {
                 }
             )
 
+        @self.app.route("/api/evse/firmware", methods=["POST"])
+        def set_firmware():
+            """Select one of the supported firmware profiles."""
+            try:
+                from emulator.config import FIRMWARE_PROFILES
+            except ImportError:
+                from ..emulator.config import FIRMWARE_PROFILES
+
+            data = request.get_json(silent=True) or {}
+            version = data.get("version")
+            profile = FIRMWARE_PROFILES.get(version)
+            if profile is None:
+                return jsonify({"error": "Unsupported firmware version"}), 400
+            self.evse.set_firmware_profile(version)
+            return jsonify(
+                {
+                    "success": True,
+                    "firmware": version,
+                    "protocol": self.evse.protocol_version,
+                }
+            )
+
         @self.app.route("/api/evse/enable", methods=["POST"])
         def enable_evse():
             if self.evse.enable():

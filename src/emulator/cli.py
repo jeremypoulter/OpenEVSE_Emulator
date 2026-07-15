@@ -7,6 +7,8 @@ Handles all CLI argument definitions and parsing.
 import argparse
 from typing import List, Optional
 
+from .config import SUPPORTED_FIRMWARE_VERSIONS
+
 
 def create_argument_parser() -> argparse.ArgumentParser:
     """
@@ -89,9 +91,9 @@ Examples:
     parser.add_argument(
         "--evse-firmware-version",
         dest="evse_firmware_version",
-        type=str,
+        choices=SUPPORTED_FIRMWARE_VERSIONS,
         default=argparse.SUPPRESS,
-        help="EVSE firmware version string reported to RAPI clients",
+        help="EVSE firmware version to emulate (default: 8.2.3)",
     )
     parser.add_argument(
         "--evse-protocol-version",

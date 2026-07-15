@@ -31,6 +31,22 @@ def test_get_version(rapi):
     assert "$OK 8.2.1 5.0.1" in response
 
 
+def test_v8_does_not_expose_v9_relay_commands(rapi):
+    """v9-only relay commands are unavailable on v8 firmware."""
+    assert rapi.process_command("$GR\r").startswith("$NK")
+    assert rapi.process_command("$SR 1 0\r").startswith("$NK")
+
+
+def test_v9_relay_commands():
+    """v9 exposes per-relay control through RAPI."""
+    evse = EVSEStateMachine(firmware_version="9.0.0", protocol_version="5.0.1")
+    rapi = RAPIHandler(evse, EVSimulator())
+
+    assert rapi.process_command("$GR\r").startswith("$OK 1 1 1")
+    assert rapi.process_command("$SR 2 0\r").startswith("$OK")
+    assert rapi.process_command("$GR\r").startswith("$OK 1 0 1")
+
+
 def test_get_current_voltage(rapi):
     """Test $GG command."""
     response = rapi.process_command("$GG\r")

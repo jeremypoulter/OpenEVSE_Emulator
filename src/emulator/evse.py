@@ -9,6 +9,8 @@ import time
 from typing import Callable
 from enum import IntEnum
 
+from .config import FIRMWARE_PROFILES
+
 # Temperature thresholds (in 0.1°C units)
 OVER_TEMP_THRESHOLD = 650  # 65.0°C
 AMBIENT_TEMP = 200  # 20.0°C
@@ -73,6 +75,9 @@ class EVSEStateMachine:
         """
         self.firmware_version = firmware_version
         self.protocol_version = protocol_version
+        profile = FIRMWARE_PROFILES.get(firmware_version, {})
+        self._firmware_features = profile.get("features", {})
+        self._relay_enabled = [True, True, True]
 
         # EVSE state
         self._state = EVSEState.STATE_A_NOT_CONNECTED
@@ -585,6 +590,8 @@ class EVSEStateMachine:
                 "stuck_relay_count": self._stuck_relay_count,
                 "firmware_version": self.firmware_version,
                 "protocol_version": self.protocol_version,
+                "firmware_features": self._firmware_features.copy(),
+                "relay_enabled": self._relay_enabled.copy(),
                 "lcd_row1": self._lcd_row1,
                 "lcd_row2": self._lcd_row2,
                 "lcd_backlight_color": self._lcd_backlight_color,
@@ -609,3 +616,36 @@ class EVSEStateMachine:
                 vflags |= 0x0040  # ECVF_CHARGING_ON
 
             return vflags
+
+    def supports_feature(self, feature: str) -> bool:
+        """Return whether the selected firmware provides a feature."""
+        with self._lock:
+            return bool(self._firmware_features.get(feature, False))
+
+    def set_firmware_profile(self, firmware_version: str) -> bool:
+        """Select a supported firmware profile."""
+        profile = FIRMWARE_PROFILES.get(firmware_version)
+        if profile is None:
+            return False
+        with self._lock:
+            self.firmware_version = firmware_version
+            self.protocol_version = profile["protocol_version"]
+            self._firmware_features = profile["features"].copy()
+            return True
+
+    def set_relay(self, relay: int, enabled: bool) -> bool:
+        """Set a v9 relay state (1=DC1, 2=DC2, 3=AC)."""
+        with self._lock:
+            if not self._firmware_features.get("relay_control", False):
+                return False
+            if relay not in (1, 2, 3):
+                return False
+            self._relay_enabled[relay - 1] = enabled
+            return True
+
+    def get_relays(self) -> tuple[bool, bool, bool] | None:
+        """Return v9 relay states, or None when unsupported."""
+        with self._lock:
+            if not self._firmware_features.get("relay_control", False):
+                return None
+            return tuple(self._relay_enabled)

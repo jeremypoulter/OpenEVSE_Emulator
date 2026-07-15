@@ -8,7 +8,7 @@
     "reconnect_backoff_ms": 1000
   },
   "evse": {
-    "firmware_version": "8.2.1",
+    "firmware_version": "8.2.3",
     "protocol_version": "5.0.1",
     "default_current": 32,
     "service_level": "L2",

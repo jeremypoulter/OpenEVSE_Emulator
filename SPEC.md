@@ -64,6 +64,7 @@ The RAPI protocol uses ASCII commands with the following format:
 | `$GT` | Get time limit | `$OK <time_limit>` |
 | `$GF` | Get fault counters | `$OK <gfci_count> <no_gnd_count> <stuck_relay_count>` |
 | `$GH` | Get kWh limit | `$OK <kwh_limit>` |
+| `$GR` | Get relay states (v9.0.0) | `$OK <dc1> <dc2> <ac>` |
 
 #### Control Commands (Sx/Fx)
 
@@ -74,6 +75,7 @@ The RAPI protocol uses ASCII commands with the following format:
 | `$SE <0\|1>` | Set echo mode | `$OK` |
 | `$ST <minutes>` | Set time limit | `$OK` or `$NK` |
 | `$SH <kwh>` | Set kWh limit | `$OK` or `$NK` |
+| `$SR <relay> <0\|1>` | Set relay state (v9.0.0; 1=DC1, 2=DC2, 3=AC) | `$OK` or `$NK` |
 | `$FE` | Enable charging (exit sleep/disabled) | `$OK` or `$NK` |
 | `$FD` | Disable EVSE (reports Disabled, 0xFF) | `$OK` |
 | `$FS` | Sleep EVSE (reports Sleep, 0xFE) | `$OK` |
@@ -193,7 +195,7 @@ GET /api/evse/status
 
 GET /api/evse/version
   Response: {
-    "firmware": "8.2.1",
+    "firmware": "8.2.3",
     "protocol": "5.0.1"
   }
 ```

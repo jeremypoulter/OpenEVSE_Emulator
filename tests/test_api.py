@@ -61,6 +61,23 @@ class TestStatusEndpoints:
         assert "temperature_ds" in data
         assert "error_flags" in data
 
+    def test_set_firmware_profile(self, api_client):
+        """Test selecting the firmware profile from the UI API."""
+        response = api_client.post(
+            "/api/evse/firmware",
+            data=json.dumps({"version": "9.0.0"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert json.loads(response.data)["firmware"] == "9.0.0"
+
+        response = api_client.post(
+            "/api/evse/firmware",
+            data=json.dumps({"version": "unsupported"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
     def test_get_ev_status(self, api_client):
         """Test GET /api/ev/status endpoint."""
         response = api_client.get("/api/ev/status")
