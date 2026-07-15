@@ -28,7 +28,7 @@ def test_get_state(rapi):
 def test_get_version(rapi):
     """Test $GV command."""
     response = rapi.process_command("$GV\r")
-    assert "$OK 8.2.1 5.0.1" in response
+    assert "$OK 8.2.3 5.0.1" in response
 
 
 def test_v8_does_not_expose_v9_relay_commands(rapi):

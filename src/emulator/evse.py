@@ -64,7 +64,7 @@ class EVSEStateMachine:
     """Manages EVSE state and charging logic."""
 
     def __init__(
-        self, firmware_version: str = "8.2.1", protocol_version: str = "5.0.1"
+        self, firmware_version: str = "8.2.3", protocol_version: str = "5.0.1"
     ):
         """
         Initialize the EVSE state machine.

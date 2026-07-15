@@ -554,7 +554,10 @@ class RAPIHandler:
     def _cmd_get_relay(self, params: list) -> str:
         """$GR - Get v9 relay states (DC1, DC2, AC)."""
         relays = self.evse.get_relays()
-        if relays is None or params:
+        if relays is None:
+            return RAPI_ERROR_RESPONSE
+        if params:
+            # $GR has no arguments in the firmware RAPI implementation.
             return RAPI_ERROR_RESPONSE
         return (
             f"{RAPI_OK_RESPONSE} {' '.join('1' if relay else '0' for relay in relays)}"
