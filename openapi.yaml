@@ -74,10 +74,35 @@ paths:
                 properties:
                   firmware:
                     type: string
-                    example: "8.2.1"
+                    example: "8.2.3"
                   protocol:
                     type: string
                     example: "5.0.1"
+
+  /api/evse/firmware:
+    post:
+      tags:
+        - EVSE
+      summary: Select firmware profile
+      description: Select the supported OpenEVSE firmware profile and its feature set
+      operationId: setFirmwareProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - version
+              properties:
+                version:
+                  type: string
+                  enum: ["8.2.3", "9.0.0"]
+      responses:
+        '200':
+          description: Firmware profile selected
+        '400':
+          description: Unsupported firmware version
 
   /api/evse/enable:
     post:

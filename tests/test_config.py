@@ -43,7 +43,7 @@ def test_default_config():
     assert config["serial"]["pty_path"] is None
 
     # Check EVSE config
-    assert config["evse"]["firmware_version"] == "8.2.1"
+    assert config["evse"]["firmware_version"] == "8.2.3"
     assert config["evse"]["protocol_version"] == "5.0.1"
     assert config["evse"]["default_current"] == 32
 

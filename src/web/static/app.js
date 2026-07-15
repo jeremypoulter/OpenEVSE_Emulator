@@ -70,6 +70,9 @@ function initializeControls() {
     
     // Serial monitor
     document.getElementById('btn-send-command').addEventListener('click', sendSerialCommand);
+    document.getElementById('firmware-version').addEventListener('change', function(e) {
+        apiCall('/api/evse/firmware', 'POST', { version: e.target.value });
+    });
     document.getElementById('serial-input').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             sendSerialCommand();
@@ -266,7 +269,7 @@ function updateDisplay() {
     // Read-only EVSE configuration
     document.getElementById('current-capacity-value').textContent = `${evse.current_capacity} A`;
     document.getElementById('service-level-value').textContent = evse.service_level || 'Unknown';
-    document.getElementById('firmware-version').textContent = evse.firmware_version || '-';
+    document.getElementById('firmware-version').value = evse.firmware_version || '8.2.3';
     document.getElementById('protocol-version').textContent = evse.protocol_version || '-';
 
     // EV sliders

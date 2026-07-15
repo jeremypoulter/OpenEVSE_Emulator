@@ -13,6 +13,18 @@ import os
 import sys
 from typing import Any
 
+FIRMWARE_PROFILES = {
+    "8.2.3": {
+        "protocol_version": "5.0.1",
+        "features": {"relay_control": False, "proximity_pilot": False},
+    },
+    "9.0.0": {
+        "protocol_version": "5.0.1",
+        "features": {"relay_control": True, "proximity_pilot": True},
+    },
+}
+SUPPORTED_FIRMWARE_VERSIONS = tuple(FIRMWARE_PROFILES)
+
 
 def default_config() -> dict:
     """Return default configuration."""
@@ -26,8 +38,8 @@ def default_config() -> dict:
             "reconnect_backoff_ms": 1000,  # Initial backoff between retries
         },
         "evse": {
-            "firmware_version": "8.2.1",
-            "protocol_version": "5.0.1",
+            "firmware_version": "8.2.3",
+            "protocol_version": FIRMWARE_PROFILES["8.2.3"]["protocol_version"],
             "default_current": 32,
             "service_level": "L2",
             "gfci_self_test": True,

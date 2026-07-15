@@ -288,7 +288,7 @@ def test_all_evse_options():
     args = parse_arguments(
         [
             "--evse-firmware-version",
-            "10.0.0",
+            "9.0.0",
             "--evse-protocol-version",
             "7.0.0",
             "--evse-default-current",
@@ -299,7 +299,7 @@ def test_all_evse_options():
         ]
     )
 
-    assert args.evse_firmware_version == "10.0.0"
+    assert args.evse_firmware_version == "9.0.0"
     assert args.evse_protocol_version == "7.0.0"
     assert args.evse_default_current == 48
     assert args.evse_service_level == "Auto"

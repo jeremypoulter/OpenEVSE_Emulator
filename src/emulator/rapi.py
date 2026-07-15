@@ -67,6 +67,8 @@ class RAPIHandler:
             "F0": self._cmd_disable_gfci_test,
             "FP": self._cmd_lcd_display,
             "FB": self._cmd_lcd_backlight,
+            "SR": self._cmd_set_relay,
+            "GR": self._cmd_get_relay,
         }
 
         # Ammeter calibration settings
@@ -535,6 +537,28 @@ class RAPIHandler:
 
         except (ValueError, IndexError):
             return RAPI_ERROR_RESPONSE
+
+    def _cmd_set_relay(self, params: list) -> str:
+        """$SR relay enabled - Set a v9 relay (1=DC1, 2=DC2, 3=AC)."""
+        if not self.evse.supports_feature("relay_control") or len(params) != 2:
+            return RAPI_ERROR_RESPONSE
+        try:
+            return (
+                RAPI_OK_RESPONSE
+                if self.evse.set_relay(int(params[0]), params[1] != "0")
+                else RAPI_ERROR_RESPONSE
+            )
+        except ValueError:
+            return RAPI_ERROR_RESPONSE
+
+    def _cmd_get_relay(self, params: list) -> str:
+        """$GR - Get v9 relay states (DC1, DC2, AC)."""
+        relays = self.evse.get_relays()
+        if relays is None or params:
+            return RAPI_ERROR_RESPONSE
+        return (
+            f"{RAPI_OK_RESPONSE} {' '.join('1' if relay else '0' for relay in relays)}"
+        )
 
     # Async Notifications
 

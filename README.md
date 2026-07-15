@@ -172,7 +172,7 @@ Edit `config.json` to customize emulator settings:
     "baudrate": 115200
   },
   "evse": {
-    "firmware_version": "8.2.1",
+    "firmware_version": "8.2.3",
     "protocol_version": "5.0.1",
     "default_current": 32,   // Amps
     "service_level": "L2",   // "L1", "L2", or "Auto"
@@ -191,6 +191,11 @@ Edit `config.json` to customize emulator settings:
 
 **Note for Docker**: When running in Docker, use `"mode": "tcp"` for the
 serial port to enable network-based serial communication.
+
+The emulator supports OpenEVSE firmware profiles 8.2.3 and 9.0.0. Firmware
+9.0.0 adds the v9 `$SR` and `$GR` relay commands; these commands return
+`$NK` when the v8 profile is selected. Select the profile with
+`--evse-firmware-version` or the Firmware Version selector in the web UI.
 
 ## Docker Deployment
 
@@ -272,7 +277,7 @@ The emulator can be run inside the container using the integrated terminal.
 | `$GS` | Get EVSE state | `$OK 3 1234` (state=3, elapsed=1234s) |
 | `$GG` | Get current/voltage | `$OK 16000 240000 3 0` |
 | `$GP` | Get temperature | `$OK 250 260 0 0` (25.0°C, 26.0°C) |
-| `$GV` | Get version | `$OK 8.2.1 5.0.1` |
+| `$GV` | Get version | `$OK 8.2.3 5.0.1` |
 | `$GU` | Get energy usage | `$OK 12500 45000000` (12.5kWh) |
 | `$GC` | Get current capacity | `$OK 32` |
 | `$GF` | Get fault counters | `$OK 0 0 0` |
