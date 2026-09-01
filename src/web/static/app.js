@@ -35,6 +35,14 @@ function initializeControls() {
         apiCall('/api/ev/soc', 'POST', { soc: parseFloat(e.target.value) });
     });
 
+    document.getElementById('charge-limit').addEventListener('input', function(e) {
+        document.getElementById('charge-limit-value').textContent = e.target.value;
+    });
+
+    document.getElementById('charge-limit').addEventListener('change', function(e) {
+        apiCall('/api/ev/charge_limit', 'POST', { charge_limit_soc: parseFloat(e.target.value) });
+    });
+
     // Direct mode toggle
     document.getElementById('direct-mode-toggle').addEventListener('change', function(e) {
         const directMode = e.target.checked;
@@ -275,6 +283,11 @@ function updateDisplay() {
     // EV sliders
     document.getElementById('battery-soc').value = ev.soc;
     document.getElementById('battery-soc-value').textContent = ev.soc;
+
+    // Charging stops here, so a limit below the current SoC means no charge.
+    const chargeLimit = ev.charge_limit_soc ?? 100;
+    document.getElementById('charge-limit').value = chargeLimit;
+    document.getElementById('charge-limit-value').textContent = chargeLimit;
 
     // Sync direct mode UI
     const directModeToggle = document.getElementById('direct-mode-toggle');

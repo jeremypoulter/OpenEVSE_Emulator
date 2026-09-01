@@ -97,7 +97,7 @@ Open your browser and navigate to `http://localhost:8080` to access the control 
 
 - **Dashboard**: View real-time EVSE state, current, voltage, and battery status
 - **EVSE Controls**: Enable/disable charging, set current capacity, service level
-- **EV Controls**: Connect/disconnect vehicle, adjust battery SoC, set max charge rate
+- **EV Controls**: Connect/disconnect vehicle, adjust battery SoC and charge limit, set max charge rate
 - **Error Simulation**: Trigger various fault conditions for testing
 - **Serial Monitor**: View RAPI command/response traffic
 
