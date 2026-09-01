@@ -11,17 +11,25 @@ import threading
 import sys
 import termios
 import time
-from typing import Optional, Callable
+from typing import Callable, List, Optional, Tuple
+
+import serial
 
 
 class VirtualSerialPort:
     """Virtual serial port using PTY or TCP socket."""
+
+    # Shared reconnection backoff policy for TCP and device modes.
+    MAX_BACKOFF_SEC = 30.0  # Cap backoff at 30 seconds
+    MIN_BACKOFF_SEC = 0.05  # Floor so a 0ms backoff retries fast without spinning
 
     def __init__(
         self,
         mode: str = "pty",
         tcp_port: int = 8023,
         pty_path: Optional[str] = None,
+        baudrate: int = 115200,
+        device_path: Optional[str] = None,
         reconnect_timeout_sec: int = 60,
         reconnect_backoff_ms: int = 1000,
     ):
@@ -29,15 +37,20 @@ class VirtualSerialPort:
         Initialize virtual serial port.
 
         Args:
-            mode: "pty" for pseudo-terminal or "tcp" for TCP socket
+            mode: "pty" for pseudo-terminal, "tcp" for TCP socket, or
+                  "device" to bridge to a real hardware serial device
             tcp_port: Port number for TCP mode
             pty_path: Optional explicit PTY path (e.g. /tmp/rapi_pty_0).
                      If None, path is auto-generated. A symlink is created.
+            baudrate: Baud rate to use when opening a real hardware device
+            device_path: Path to a real hardware serial device (e.g.
+                        /dev/ttyUSB0), required when mode is "device"
             reconnect_timeout_sec: Max seconds to retry connections (0=infinite)
             reconnect_backoff_ms: Initial backoff between retries in milliseconds
 
         Raises:
-            ValueError: If reconnect_timeout_sec or reconnect_backoff_ms is negative
+            ValueError: If reconnect_timeout_sec or reconnect_backoff_ms is
+                negative, or baudrate is not positive
         """
         if reconnect_timeout_sec < 0:
             raise ValueError(
@@ -47,10 +60,14 @@ class VirtualSerialPort:
             raise ValueError(
                 f"reconnect_backoff_ms must be >= 0, got {reconnect_backoff_ms}"
             )
+        if baudrate <= 0:
+            raise ValueError(f"baudrate must be > 0, got {baudrate}")
 
         self.mode = mode
         self.tcp_port = tcp_port
         self.pty_path = pty_path
+        self.baudrate = baudrate
+        self.device_path = device_path
         self.reconnect_timeout_sec = reconnect_timeout_sec
         self.reconnect_backoff_ms = reconnect_backoff_ms
 
@@ -60,10 +77,12 @@ class VirtualSerialPort:
         self.pty_symlink: Optional[str] = None  # Track symlink we created
         self.tcp_socket: Optional[socket.socket] = None
         self.client_socket: Optional[socket.socket] = None
+        self.serial_conn: Optional[serial.Serial] = None
 
         self.running = False
         self.read_thread: Optional[threading.Thread] = None
         self.data_callback: Optional[Callable[[str], str]] = None
+        self._stop_event = threading.Event()
 
     def start(self, data_callback: Callable[[str], str]) -> bool:
         """
@@ -76,14 +95,44 @@ class VirtualSerialPort:
             True if started successfully, False otherwise
         """
         self.data_callback = data_callback
+        self._stop_event.clear()
 
         if self.mode == "pty":
             return self._start_pty()
         elif self.mode == "tcp":
             return self._start_tcp()
+        elif self.mode == "device":
+            return self._start_device()
         else:
             print(f"Unknown mode: {self.mode}")
             return False
+
+    @staticmethod
+    def _split_commands(buffer: str) -> Tuple[List[str], str]:
+        """
+        Split a buffer into complete RAPI commands terminated by \r or \n.
+
+        Returns:
+            Tuple of (list of complete commands including their terminator,
+            remaining unterminated buffer)
+        """
+        commands: List[str] = []
+
+        while "\r" in buffer or "\n" in buffer:
+            cr_pos = buffer.find("\r")
+            lf_pos = buffer.find("\n")
+
+            if cr_pos == -1:
+                end_pos = lf_pos
+            elif lf_pos == -1:
+                end_pos = cr_pos
+            else:
+                end_pos = min(cr_pos, lf_pos)
+
+            commands.append(buffer[: end_pos + 1])
+            buffer = buffer[end_pos + 1 :]
+
+        return commands, buffer
 
     def _setup_pty_symlink(self) -> None:
         """Set up PTY symlink if requested."""
@@ -154,7 +203,7 @@ class VirtualSerialPort:
 
             display_path = self.pty_symlink if self.pty_symlink else self.slave_name
             print(f"Virtual serial port created: {display_path}")
-            print(f"Connect using: screen {display_path} 115200")
+            print(f"Connect using: screen {display_path} {self.baudrate}")
 
             self.running = True
             self.read_thread = threading.Thread(target=self._pty_read_loop, daemon=True)
@@ -202,23 +251,8 @@ class VirtualSerialPort:
                 text = data.decode("latin-1")
                 buffer += text
 
-                # Process complete commands (ending with \r or \n)
-                while "\r" in buffer or "\n" in buffer:
-                    # Find the first line ending
-                    cr_pos = buffer.find("\r")
-                    lf_pos = buffer.find("\n")
-
-                    if cr_pos == -1:
-                        end_pos = lf_pos
-                    elif lf_pos == -1:
-                        end_pos = cr_pos
-                    else:
-                        end_pos = min(cr_pos, lf_pos)
-
-                    command = buffer[: end_pos + 1]
-                    buffer = buffer[end_pos + 1 :]
-
-                    # Process command
+                commands, buffer = self._split_commands(buffer)
+                for command in commands:
                     if self.data_callback and command.strip():
                         response = self.data_callback(command)
                         if response:
@@ -229,10 +263,48 @@ class VirtualSerialPort:
                     print(f"PTY read error: {e}")
                 break
 
+    def _mark_stopped(self):
+        """
+        Mark the port stopped from inside a worker thread.
+
+        A worker cannot call stop(): that joins read_thread, which would be the
+        calling thread, raising RuntimeError. This does the state half only.
+        """
+        self.running = False
+        self._stop_event.set()
+
+    def _close_sockets(self):
+        """Close any open TCP client/listen sockets."""
+        if self.client_socket:
+            self.client_socket.close()
+            self.client_socket = None
+
+        if self.tcp_socket:
+            self.tcp_socket.close()
+            self.tcp_socket = None
+
+    def _wait_backoff(self, backoff: float) -> float:
+        """
+        Wait out the current backoff, then return the next one.
+
+        The wait is interruptible: stop() sets the stop event, so a shutdown is
+        not delayed by up to MAX_BACKOFF_SEC. The delay is floored at
+        MIN_BACKOFF_SEC so that a configured backoff of 0ms retries promptly
+        instead of spinning the CPU, and capped at MAX_BACKOFF_SEC.
+
+        Args:
+            backoff: Current backoff in seconds
+
+        Returns:
+            The backoff to use for the next attempt (doubled, capped)
+        """
+        delay = min(max(backoff, self.MIN_BACKOFF_SEC), self.MAX_BACKOFF_SEC)
+        self._stop_event.wait(delay)
+        return min(delay * 2, self.MAX_BACKOFF_SEC)
+
     def _tcp_accept_loop(self):
         """Accept loop for TCP mode with reconnection support."""
         backoff = self.reconnect_backoff_ms / 1000.0
-        max_backoff = 30.0  # Cap backoff at 30 seconds
         reconnect_attempt_start_time: Optional[float] = None
 
         while self.running and self.tcp_socket:
@@ -251,8 +323,7 @@ class VirtualSerialPort:
                 if self.running:
                     reconnect_attempt_start_time = time.time()
                     print(f"Waiting {backoff:.1f}s before accepting new connection...")
-                    time.sleep(backoff)
-                    backoff = min(backoff * 2, max_backoff)  # Exponential backoff
+                    backoff = self._wait_backoff(backoff)
 
             except Exception as e:
                 if self.running:
@@ -267,9 +338,10 @@ class VirtualSerialPort:
                             print(
                                 f"Reconnection timeout after {elapsed:.1f}s, stopping"
                             )
+                            self._mark_stopped()
+                            self._close_sockets()
                             break
-                    time.sleep(backoff)
-                    backoff = min(backoff * 2, max_backoff)
+                    backoff = self._wait_backoff(backoff)
                 else:
                     break
 
@@ -289,23 +361,8 @@ class VirtualSerialPort:
                 text = data.decode("latin-1")
                 buffer += text
 
-                # Process complete commands (ending with \r or \n)
-                while "\r" in buffer or "\n" in buffer:
-                    # Find the first line ending
-                    cr_pos = buffer.find("\r")
-                    lf_pos = buffer.find("\n")
-
-                    if cr_pos == -1:
-                        end_pos = lf_pos
-                    elif lf_pos == -1:
-                        end_pos = cr_pos
-                    else:
-                        end_pos = min(cr_pos, lf_pos)
-
-                    command = buffer[: end_pos + 1]
-                    buffer = buffer[end_pos + 1 :]
-
-                    # Process command
+                commands, buffer = self._split_commands(buffer)
+                for command in commands:
                     if self.data_callback and command.strip():
                         response = self.data_callback(command)
                         if response:
@@ -320,17 +377,113 @@ class VirtualSerialPort:
             self.client_socket.close()
             self.client_socket = None
 
+    def _start_device(self) -> bool:
+        """Start real hardware serial device mode."""
+        if not self.device_path:
+            print("No serial device path configured for device mode")
+            return False
+
+        print(f"Bridging virtual serial port to hardware device: {self.device_path}")
+        print(f"Baud rate: {self.baudrate}")
+
+        self.running = True
+        self.read_thread = threading.Thread(
+            target=self._device_reconnect_loop, daemon=True
+        )
+        self.read_thread.start()
+
+        return True
+
+    def _open_device(self) -> bool:
+        """Open the configured hardware serial device."""
+        try:
+            self.serial_conn = serial.Serial(
+                port=self.device_path,
+                baudrate=self.baudrate,
+                timeout=0.1,
+            )
+            print(f"Connected to serial device: {self.device_path}")
+            return True
+        except serial.SerialException as e:
+            print(f"Could not open serial device {self.device_path}: {e}")
+            self.serial_conn = None
+            return False
+
+    def _device_reconnect_loop(self):
+        """Open (and re-open) the hardware serial device, with reconnection support."""
+        backoff = self.reconnect_backoff_ms / 1000.0
+        reconnect_attempt_start_time: Optional[float] = None
+
+        while self.running:
+            if self._open_device():
+                # Reset backoff and reconnection timer on successful open
+                backoff = self.reconnect_backoff_ms / 1000.0
+                reconnect_attempt_start_time = None
+
+                self._device_read_loop()
+
+                if self.serial_conn:
+                    self.serial_conn.close()
+                    self.serial_conn = None
+
+                if not self.running:
+                    break
+
+                # Device disconnected, start tracking reconnection time
+                reconnect_attempt_start_time = time.time()
+                print(f"Waiting {backoff:.1f}s before reopening {self.device_path}...")
+            else:
+                if self.running and reconnect_attempt_start_time is None:
+                    reconnect_attempt_start_time = time.time()
+
+            if not self.running:
+                break
+
+            if (
+                self.reconnect_timeout_sec > 0
+                and reconnect_attempt_start_time is not None
+            ):
+                elapsed = time.time() - reconnect_attempt_start_time
+                if elapsed > self.reconnect_timeout_sec:
+                    print(f"Reconnection timeout after {elapsed:.1f}s, stopping")
+                    self._mark_stopped()
+                    break
+
+            backoff = self._wait_backoff(backoff)
+
+    def _device_read_loop(self):
+        """Read loop for real hardware device mode."""
+        buffer = ""
+
+        while self.running and self.serial_conn:
+            try:
+                data = self.serial_conn.read(1024)
+                if not data:
+                    # read() returns b'' on timeout (not disconnect) for pyserial;
+                    # keep polling so we notice self.running going False promptly.
+                    continue
+
+                # Decode and add to buffer
+                # Use latin-1 to preserve all byte values 0-255 (including 0xFE for LCD spaces)
+                text = data.decode("latin-1")
+                buffer += text
+
+                commands, buffer = self._split_commands(buffer)
+                for command in commands:
+                    if self.data_callback and command.strip():
+                        response = self.data_callback(command)
+                        if response:
+                            self.serial_conn.write(response.encode("latin-1"))
+
+            except serial.SerialException as e:
+                if self.running:
+                    print(f"Serial device error: {e}")
+                break
+
     def stop(self):
         """Stop the virtual serial port."""
-        self.running = False
-
-        if self.client_socket:
-            self.client_socket.close()
-            self.client_socket = None
-
-        if self.tcp_socket:
-            self.tcp_socket.close()
-            self.tcp_socket = None
+        self._mark_stopped()
+        self._close_sockets()
 
         if self.master_fd is not None:
             os.close(self.master_fd)
@@ -339,6 +492,13 @@ class VirtualSerialPort:
         if self.slave_fd is not None:
             os.close(self.slave_fd)
             self.slave_fd = None
+
+        if self.serial_conn:
+            try:
+                self.serial_conn.close()
+            except Exception as e:
+                print(f"Warning: Could not close serial device: {e}")
+            self.serial_conn = None
 
         # Clean up symlink if we created one
         if self.pty_symlink and os.path.islink(self.pty_symlink):
@@ -358,6 +518,8 @@ class VirtualSerialPort:
             return f"PTY: {self.slave_name}"
         elif self.mode == "tcp":
             return f"TCP: localhost:{self.tcp_port}"
+        elif self.mode == "device":
+            return f"Device: {self.device_path} @ {self.baudrate} baud"
         return "Not started"
 
     def write(self, data: str):
@@ -377,5 +539,7 @@ class VirtualSerialPort:
                 os.write(self.master_fd, data_bytes)
             elif self.mode == "tcp" and self.client_socket:
                 self.client_socket.send(data_bytes)
+            elif self.mode == "device" and self.serial_conn:
+                self.serial_conn.write(data_bytes)
         except Exception as e:
             print(f"Error writing to serial port: {e}")

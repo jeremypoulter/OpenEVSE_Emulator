@@ -34,6 +34,7 @@ def default_config() -> dict:
             "tcp_port": 8023,
             "baudrate": 115200,
             "pty_path": None,  # None = auto-generate, or explicit path
+            "device": None,  # Real hardware device path (e.g. /dev/ttyUSB0), for mode="device"
             "reconnect_timeout_sec": 60,  # Max time to retry connections (0 = infinite)
             "reconnect_backoff_ms": 1000,  # Initial backoff between retries
         },
@@ -135,6 +136,7 @@ ENV_OVERRIDE_PATHS = {
     "SERIAL_MODE": "serial.mode",
     "SERIAL_TCP_PORT": "serial.tcp_port",
     "SERIAL_PTY_PATH": "serial.pty_path",
+    "SERIAL_DEVICE": "serial.device",
     "SERIAL_RECONNECT_TIMEOUT": "serial.reconnect_timeout_sec",
     "SERIAL_RECONNECT_BACKOFF": "serial.reconnect_backoff_ms",
     "WEB_HOST": "web.host",
@@ -202,6 +204,7 @@ CLI_OVERRIDE_PATHS = {
     "serial_tcp_port": "serial.tcp_port",
     "serial_baudrate": "serial.baudrate",
     "serial_pty_path": "serial.pty_path",
+    "serial_device": "serial.device",
     "serial_reconnect_timeout": "serial.reconnect_timeout_sec",
     "serial_reconnect_backoff": "serial.reconnect_backoff_ms",
     "evse_firmware_version": "evse.firmware_version",

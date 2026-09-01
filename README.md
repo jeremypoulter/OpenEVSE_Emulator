@@ -146,6 +146,19 @@ $GG<Enter>          # Get current/voltage
 $FE<Enter>          # Enable charging
 ```
 
+To bridge the emulator to real hardware (e.g. an ESP32 running the WiFi
+firmware over a USB-to-serial adapter) instead of a virtual PTY or TCP
+socket, use `--serial-mode device` with `--serial-device`:
+
+```bash
+./src/main.py --serial-mode device --serial-device /dev/ttyUSB0 \
+  --serial-baudrate 115200
+```
+
+If the device isn't present at startup, or is unplugged while running, the
+emulator retries opening it using the same reconnect backoff/timeout
+settings as TCP mode.
+
 ### WebSocket
 
 Subscribe to real-time updates:
@@ -167,9 +180,10 @@ Edit `config.json` to customize emulator settings:
 ```json
 {
   "serial": {
-    "mode": "pty",           // "pty" or "tcp"
+    "mode": "pty",           // "pty", "tcp", or "device"
     "tcp_port": 8023,
-    "baudrate": 115200
+    "baudrate": 115200,
+    "device": null            // e.g. "/dev/ttyUSB0", required when mode is "device"
   },
   "evse": {
     "firmware_version": "8.2.3",

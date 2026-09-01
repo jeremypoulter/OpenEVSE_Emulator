@@ -41,6 +41,7 @@ def test_default_config():
     assert config["serial"]["tcp_port"] == 8023
     assert config["serial"]["baudrate"] == 115200
     assert config["serial"]["pty_path"] is None
+    assert config["serial"]["device"] is None
 
     # Check EVSE config
     assert config["evse"]["firmware_version"] == "8.2.3"
@@ -131,6 +132,7 @@ def test_apply_env_overrides(monkeypatch):
     # Set environment variables
     monkeypatch.setenv("SERIAL_MODE", "tcp")
     monkeypatch.setenv("SERIAL_TCP_PORT", "9999")
+    monkeypatch.setenv("SERIAL_DEVICE", "/dev/ttyUSB0")
     monkeypatch.setenv("WEB_HOST", "127.0.0.1")
     monkeypatch.setenv("WEB_PORT", "7777")
 
@@ -139,6 +141,7 @@ def test_apply_env_overrides(monkeypatch):
     # Check values were applied
     assert config["serial"]["mode"] == "tcp"
     assert config["serial"]["tcp_port"] == 9999
+    assert config["serial"]["device"] == "/dev/ttyUSB0"
     assert config["web"]["host"] == "127.0.0.1"
     assert config["web"]["port"] == 7777
 
@@ -197,6 +200,7 @@ def test_apply_cli_overrides():
     args = {
         "serial_mode": "tcp",
         "serial_tcp_port": 9999,
+        "serial_device": "/dev/ttyUSB0",
         "web_host": "127.0.0.1",
         "web_port": 7777,
         "evse_firmware_version": "9.0.0",
@@ -206,6 +210,7 @@ def test_apply_cli_overrides():
 
     assert config["serial"]["mode"] == "tcp"
     assert config["serial"]["tcp_port"] == 9999
+    assert config["serial"]["device"] == "/dev/ttyUSB0"
     assert config["web"]["host"] == "127.0.0.1"
     assert config["web"]["port"] == 7777
     assert config["evse"]["firmware_version"] == "9.0.0"

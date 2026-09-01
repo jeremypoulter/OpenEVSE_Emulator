@@ -49,7 +49,7 @@ Examples:
         dest="serial_mode",
         type=str,
         default=argparse.SUPPRESS,
-        help="Virtual serial mode: pty or tcp (default: pty)",
+        help="Virtual serial mode: pty, tcp, or device (default: pty)",
     )
     parser.add_argument(
         "--serial-tcp-port",
@@ -71,6 +71,16 @@ Examples:
         type=str,
         default=argparse.SUPPRESS,
         help="Explicit PTY path (e.g. /tmp/rapi_pty_0). If not set, auto-generated.",
+    )
+    parser.add_argument(
+        "--serial-device",
+        dest="serial_device",
+        type=str,
+        default=argparse.SUPPRESS,
+        help=(
+            "Path to a real hardware serial device for device mode "
+            "(e.g. /dev/ttyUSB0)"
+        ),
     )
     parser.add_argument(
         "--serial-reconnect-timeout",

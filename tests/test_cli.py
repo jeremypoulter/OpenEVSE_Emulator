@@ -60,6 +60,12 @@ def test_parse_arguments_serial_pty_path():
     assert args.serial_pty_path == "/tmp/test_pty"
 
 
+def test_parse_arguments_serial_device():
+    """Test parsing serial device path."""
+    args = parse_arguments(["--serial-device", "/dev/ttyUSB0"])
+    assert args.serial_device == "/dev/ttyUSB0"
+
+
 def test_parse_arguments_serial_reconnect_timeout():
     """Test parsing serial reconnect timeout."""
     args = parse_arguments(["--serial-reconnect-timeout", "120"])
@@ -268,6 +274,8 @@ def test_all_serial_options():
             "9600",
             "--serial-pty-path",
             "/tmp/pty",
+            "--serial-device",
+            "/dev/ttyUSB0",
             "--serial-reconnect-timeout",
             "30",
             "--serial-reconnect-backoff",
@@ -279,6 +287,7 @@ def test_all_serial_options():
     assert args.serial_tcp_port == 9999
     assert args.serial_baudrate == 9600
     assert args.serial_pty_path == "/tmp/pty"
+    assert args.serial_device == "/dev/ttyUSB0"
     assert args.serial_reconnect_timeout == 30
     assert args.serial_reconnect_backoff == 500
 
