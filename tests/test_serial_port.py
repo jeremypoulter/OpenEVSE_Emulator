@@ -206,7 +206,9 @@ class TestDeviceMode:
         port = VirtualSerialPort(mode="device", device_path="/dev/ttyUSB0")
         port.running = True
         port.serial_conn = MagicMock()
-        port.serial_conn.read.side_effect = serial.SerialException("device disconnected")
+        port.serial_conn.read.side_effect = serial.SerialException(
+            "device disconnected"
+        )
 
         # Should return promptly rather than raising or hanging.
         port._device_read_loop()

@@ -393,7 +393,10 @@ class VirtualSerialPort:
             if not self.running:
                 break
 
-            if self.reconnect_timeout_sec > 0 and reconnect_attempt_start_time is not None:
+            if (
+                self.reconnect_timeout_sec > 0
+                and reconnect_attempt_start_time is not None
+            ):
                 elapsed = time.time() - reconnect_attempt_start_time
                 if elapsed > self.reconnect_timeout_sec:
                     print(f"Reconnection timeout after {elapsed:.1f}s, stopping")
