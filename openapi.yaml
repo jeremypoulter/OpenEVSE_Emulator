@@ -40,6 +40,8 @@ tags:
     description: Error simulation and management
   - name: Status
     description: Combined status information
+  - name: Reporting
+    description: Vehicle telemetry reporting to a real OpenEVSE
 
 paths:
   /api/evse/status:
@@ -299,6 +301,132 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
+
+  /api/ev/charge_limit:
+    post:
+      tags:
+        - EV
+      summary: Set the vehicle charge limit
+      description: >
+        Set the SoC percentage at which the simulated vehicle stops charging.
+        Reported to the OpenEVSE as vehicle_charge_limit.
+      operationId: setEvChargeLimit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - charge_limit_soc
+              properties:
+                charge_limit_soc:
+                  type: number
+                  format: float
+                  minimum: 0
+                  maximum: 100
+                  example: 80.0
+      responses:
+        '200':
+          description: Charge limit set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid charge limit value
+
+  /api/ev/range:
+    post:
+      tags:
+        - EV
+      summary: Set the vehicle range at full charge
+      description: >
+        Set the driving range in km at 100% SoC. The reported battery_range is
+        derived from this and the current SoC.
+      operationId: setEvRange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - range_km_at_full
+              properties:
+                range_km_at_full:
+                  type: number
+                  format: float
+                  minimum: 0
+                  example: 400.0
+      responses:
+        '200':
+          description: Range set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid range value
+
+  /api/reporting/status:
+    get:
+      tags:
+        - Reporting
+      summary: Get vehicle telemetry reporting status
+      description: >
+        Report which telemetry transports are configured, the last values
+        pushed, and the last error from each transport. Use this to diagnose a
+        push the OpenEVSE is ignoring because its vehicle_data_src does not
+        match the transport in use.
+      operationId: getReportingStatus
+      responses:
+        '200':
+          description: Current reporting status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  running:
+                    type: boolean
+                  interval_sec:
+                    type: number
+                  last_telemetry:
+                    type: object
+                    nullable: true
+                  http:
+                    type: object
+                    nullable: true
+                  mqtt:
+                    type: object
+                    nullable: true
+
+  /api/reporting/publish:
+    post:
+      tags:
+        - Reporting
+      summary: Push vehicle telemetry now
+      description: >
+        Send the current vehicle telemetry over every enabled transport
+        immediately, instead of waiting for the next interval.
+      operationId: publishReporting
+      responses:
+        '200':
+          description: Telemetry pushed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  telemetry:
+                    type: object
+                  results:
+                    type: object
+        '409':
+          description: Telemetry reporting is not configured
 
   /api/ev/soc:
     post:

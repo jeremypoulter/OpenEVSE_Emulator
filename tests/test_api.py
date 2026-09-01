@@ -702,3 +702,77 @@ class TestDirectModeEndpoints:
         assert "direct_mode" in ev
         assert "direct_current_amps" in ev
         assert "current_variance_enabled" in ev
+
+
+class TestVehicleTelemetryEndpoints:
+    """EV range/charge-limit setters and the reporting endpoints."""
+
+    def test_set_charge_limit(self, api_client, ev):
+        response = api_client.post(
+            "/api/ev/charge_limit", json={"charge_limit_soc": 80}
+        )
+        assert response.status_code == 200
+        assert ev.charge_limit_soc == 80.0
+
+    def test_set_charge_limit_rejects_out_of_range(self, api_client):
+        response = api_client.post(
+            "/api/ev/charge_limit", json={"charge_limit_soc": 120}
+        )
+        assert response.status_code == 400
+
+    def test_set_charge_limit_rejects_non_numeric(self, api_client):
+        response = api_client.post(
+            "/api/ev/charge_limit", json={"charge_limit_soc": "full"}
+        )
+        assert response.status_code == 400
+
+    def test_set_charge_limit_requires_field(self, api_client):
+        assert api_client.post("/api/ev/charge_limit", json={}).status_code == 400
+
+    def test_set_range(self, api_client, ev):
+        response = api_client.post("/api/ev/range", json={"range_km_at_full": 500})
+        assert response.status_code == 200
+        assert ev.range_km_at_full == 500.0
+
+    def test_set_range_rejects_non_positive(self, api_client):
+        response = api_client.post("/api/ev/range", json={"range_km_at_full": 0})
+        assert response.status_code == 400
+
+    def test_reporting_status_without_a_reporter(self, api_client):
+        """The endpoint must answer even when reporting is not wired up."""
+        response = api_client.get("/api/reporting/status")
+        assert response.status_code == 200
+        assert json.loads(response.data)["enabled"] is False
+
+    def test_publish_without_a_reporter_is_a_conflict(self, api_client):
+        assert api_client.post("/api/reporting/publish").status_code == 409
+
+    def test_reporting_status_with_a_reporter(self, evse, ev):
+        from src.emulator.telemetry import HttpTelemetryReporter, TelemetryReporter
+
+        reporter = TelemetryReporter(ev, http=HttpTelemetryReporter(url="http://evse"))
+        api = WebAPI(evse, ev, host="127.0.0.1", port=8080, reporter=reporter)
+        api.app.config["TESTING"] = True
+
+        with api.app.test_client() as client:
+            data = json.loads(client.get("/api/reporting/status").data)
+
+        assert data["enabled"] is True
+        assert data["http"]["url"] == "http://evse/status"
+
+    def test_publish_returns_per_transport_results(self, evse, ev):
+        from unittest.mock import MagicMock
+
+        from src.emulator.telemetry import TelemetryReporter
+
+        http = MagicMock()
+        http.send.return_value = True
+        reporter = TelemetryReporter(ev, http=http)
+        api = WebAPI(evse, ev, host="127.0.0.1", port=8080, reporter=reporter)
+        api.app.config["TESTING"] = True
+
+        with api.app.test_client() as client:
+            data = json.loads(client.post("/api/reporting/publish").data)
+
+        assert data["results"] == {"http": True}
+        assert data["telemetry"]["battery_level"] == ev.soc

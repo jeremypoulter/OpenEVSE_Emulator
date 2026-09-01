@@ -300,3 +300,81 @@ def test_get_status_includes_new_fields():
     assert status["direct_mode"] is True
     assert status["direct_current_amps"] == 15.0
     assert status["current_variance_enabled"] is True
+
+
+class TestVehicleTelemetryState:
+    """Range, charge limit and ETA added for telemetry reporting."""
+
+    def test_range_derives_from_soc(self):
+        ev = EVSimulator(range_km_at_full=400.0)
+        ev.soc = 25.0
+        assert ev.range_km == 100.0
+
+    def test_charge_limit_is_clamped(self):
+        ev = EVSimulator(charge_limit_soc=150.0)
+        assert ev.charge_limit_soc == 100.0
+        ev.charge_limit_soc = -10.0
+        assert ev.charge_limit_soc == 0.0
+
+    def test_default_charge_limit_preserves_charging_to_full(self):
+        """The default of 100 must not change existing charging behaviour."""
+        ev = EVSimulator(battery_capacity_kwh=10.0, max_charge_rate_kw=100.0)
+        ev.soc = 99.0
+        ev.connected = True
+        ev.requesting_charge = True
+
+        ev.update_charging(offered_current_amps=32, voltage=240, delta_time_sec=3600)
+
+        assert ev.soc == 100.0
+
+    def test_charging_stops_at_the_charge_limit(self):
+        ev = EVSimulator(
+            battery_capacity_kwh=10.0, max_charge_rate_kw=100.0, charge_limit_soc=80.0
+        )
+        ev.soc = 70.0
+        ev.connected = True
+        ev.requesting_charge = True
+
+        ev.update_charging(offered_current_amps=32, voltage=240, delta_time_sec=3600)
+
+        assert ev.soc == 80.0
+        assert ev.requesting_charge is False
+        assert ev.actual_charge_rate_kw == 0.0
+
+    def test_charging_does_not_start_above_the_limit(self):
+        ev = EVSimulator(charge_limit_soc=50.0)
+        ev.soc = 60.0
+        ev.connected = True
+        ev.requesting_charge = True
+
+        ev.update_charging(offered_current_amps=32, voltage=240, delta_time_sec=1.0)
+
+        assert ev.soc == 60.0
+        assert ev.actual_charge_rate_kw == 0.0
+
+    def test_eta_is_zero_when_idle(self):
+        assert EVSimulator().time_to_full_charge_sec == 0
+
+    def test_eta_counts_down_to_the_charge_limit(self):
+        """A limit below 100 must shorten the ETA, not report time to full."""
+        ev = EVSimulator(battery_capacity_kwh=100.0, charge_limit_soc=60.0)
+        ev.soc = 50.0
+        ev.connected = True
+        ev.requesting_charge = True
+        ev.direct_mode = True
+        ev.direct_current_amps = 10.0
+
+        # 10 A at 1000 V = 10 kW; 10 kWh remaining to the 60% limit = 1 hour.
+        ev.update_charging(offered_current_amps=0, voltage=1000.0, delta_time_sec=0)
+
+        assert ev.time_to_full_charge_sec == 3600
+
+    def test_status_exposes_telemetry_fields(self):
+        status = EVSimulator().get_status()
+        for key in (
+            "range_km",
+            "range_km_at_full",
+            "charge_limit_soc",
+            "time_to_full_charge_sec",
+        ):
+            assert key in status

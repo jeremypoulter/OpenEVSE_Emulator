@@ -35,6 +35,7 @@ class WebAPI:
         ev: "EVSimulator",
         host: str = "0.0.0.0",
         port: int = 8080,
+        reporter=None,
     ):
         """
         Initialize the web API.
@@ -44,11 +45,13 @@ class WebAPI:
             ev: EV simulator instance
             host: Host to bind to
             port: Port to bind to
+            reporter: Optional TelemetryReporter for the reporting endpoints
         """
         self.evse = evse
         self.ev = ev
         self.host = host
         self.port = port
+        self.reporter = reporter
 
         # Create Flask app
         self.app = Flask(
@@ -574,6 +577,56 @@ ws.onmessage = (event) => {
                 return jsonify({"success": True})
             except (ValueError, TypeError):
                 return jsonify({"error": "Invalid amps value"}), 400
+
+        @self.app.route("/api/ev/charge_limit", methods=["POST"])
+        def set_charge_limit():
+            data = request.get_json()
+            if not data or "charge_limit_soc" not in data:
+                return jsonify({"error": "charge_limit_soc required"}), 400
+
+            try:
+                limit = float(data["charge_limit_soc"])
+            except (TypeError, ValueError):
+                return jsonify({"error": "charge_limit_soc must be a number"}), 400
+
+            if not 0 <= limit <= 100:
+                return jsonify({"error": "charge_limit_soc must be 0-100"}), 400
+
+            self.ev.charge_limit_soc = limit
+            self._broadcast_status()
+            return jsonify({"success": True, "charge_limit_soc": limit})
+
+        @self.app.route("/api/ev/range", methods=["POST"])
+        def set_range():
+            data = request.get_json()
+            if not data or "range_km_at_full" not in data:
+                return jsonify({"error": "range_km_at_full required"}), 400
+
+            try:
+                range_km = float(data["range_km_at_full"])
+            except (TypeError, ValueError):
+                return jsonify({"error": "range_km_at_full must be a number"}), 400
+
+            if range_km <= 0:
+                return jsonify({"error": "range_km_at_full must be > 0"}), 400
+
+            self.ev.range_km_at_full = range_km
+            self._broadcast_status()
+            return jsonify({"success": True, "range_km_at_full": range_km})
+
+        @self.app.route("/api/reporting/status", methods=["GET"])
+        def get_reporting_status():
+            if self.reporter is None:
+                return jsonify({"enabled": False, "running": False})
+            return jsonify(self.reporter.get_status())
+
+        @self.app.route("/api/reporting/publish", methods=["POST"])
+        def publish_reporting():
+            """Push telemetry immediately, rather than waiting for the interval."""
+            if self.reporter is None or not self.reporter.enabled:
+                return jsonify({"error": "Telemetry reporting is not configured"}), 409
+
+            return jsonify(self.reporter.publish_once())
 
         @self.app.route("/api/ev/mode", methods=["POST"])
         def set_ev_mode():

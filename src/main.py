@@ -25,6 +25,7 @@ from emulator.evse import EVSEStateMachine  # noqa: E402
 from emulator.ev import EVSimulator  # noqa: E402
 from emulator.rapi import RAPIHandler  # noqa: E402
 from emulator.serial_port import VirtualSerialPort  # noqa: E402
+from emulator.telemetry import build_reporter  # noqa: E402
 from web.api import WebAPI  # noqa: E402
 
 
@@ -67,7 +68,18 @@ class OpenEVSEEmulator:
         self.ev = EVSimulator(
             battery_capacity_kwh=ev_config["battery_capacity_kwh"],
             max_charge_rate_kw=ev_config["max_charge_rate_kw"],
+            range_km_at_full=ev_config.get("range_km_at_full", 400.0),
+            charge_limit_soc=ev_config.get("charge_limit_soc", 100.0),
         )
+
+        # Optional push of the simulated vehicle's battery state to a real
+        # OpenEVSE. Misconfiguration here must not stop the emulator starting,
+        # since the rest of it is still useful without telemetry.
+        try:
+            self.reporter = build_reporter(self.ev, self.config.get("reporting", {}))
+        except ValueError as e:
+            print(f"Vehicle telemetry reporting disabled: {e}")
+            self.reporter = build_reporter(self.ev, {})
 
         self.rapi = RAPIHandler(self.evse, self.ev)
 
@@ -87,7 +99,11 @@ class OpenEVSEEmulator:
 
         web_config = self.config["web"]
         self.web_api = WebAPI(
-            self.evse, self.ev, host=web_config["host"], port=web_config["port"]
+            self.evse,
+            self.ev,
+            host=web_config["host"],
+            port=web_config["port"],
+            reporter=self.reporter,
         )
 
         # Simulation state
@@ -115,6 +131,9 @@ class OpenEVSEEmulator:
         # Send boot notification
         print("\nSending boot notification...")
         self.rapi.send_boot_notification()
+
+        # Start vehicle telemetry reporting (no-op when not configured)
+        self.reporter.start()
 
         # Start simulation loop
         print("\nStarting simulation loop...")
@@ -144,6 +163,7 @@ class OpenEVSEEmulator:
         if self.simulation_thread:
             self.simulation_thread.join(timeout=2.0)
 
+        self.reporter.stop()
         self.serial_port.stop()
         print("Emulator stopped.")
 
