@@ -286,3 +286,52 @@ class TestBackoff:
                     port._device_reconnect_loop()
 
         assert port.running is False
+
+    def test_tcp_accept_loop_closes_sockets_on_timeout(self):
+        """Timing out must release the bound port, not leave it listening."""
+        port = VirtualSerialPort(
+            mode="tcp", tcp_port=0, reconnect_timeout_sec=1, reconnect_backoff_ms=0
+        )
+        port.running = True
+        port.tcp_socket = MagicMock()
+        port.tcp_socket.accept.side_effect = OSError("accept failed")
+        listen_socket = port.tcp_socket
+
+        clock = iter([0.0, 10.0])
+        last = [10.0]
+
+        def fake_time():
+            last[0] = next(clock, last[0])
+            return last[0]
+
+        with patch("time.time", side_effect=fake_time):
+            port._tcp_accept_loop()
+
+        assert port.running is False
+        assert port._stop_event.is_set()
+        listen_socket.close.assert_called_once()
+        assert port.tcp_socket is None
+
+    def test_device_reconnect_loop_sets_stop_event_on_timeout(self):
+        """Device timeout leaves the same stopped state as TCP."""
+        port = VirtualSerialPort(
+            mode="device",
+            device_path="/dev/ttyUSB0",
+            reconnect_timeout_sec=1,
+            reconnect_backoff_ms=0,
+        )
+        port.running = True
+
+        clock = iter([0.0, 10.0])
+        last = [10.0]
+
+        def fake_time():
+            last[0] = next(clock, last[0])
+            return last[0]
+
+        with patch.object(port, "_open_device", return_value=False):
+            with patch("time.time", side_effect=fake_time):
+                port._device_reconnect_loop()
+
+        assert port.running is False
+        assert port._stop_event.is_set()

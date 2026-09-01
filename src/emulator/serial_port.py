@@ -263,6 +263,26 @@ class VirtualSerialPort:
                     print(f"PTY read error: {e}")
                 break
 
+    def _mark_stopped(self):
+        """
+        Mark the port stopped from inside a worker thread.
+
+        A worker cannot call stop(): that joins read_thread, which would be the
+        calling thread, raising RuntimeError. This does the state half only.
+        """
+        self.running = False
+        self._stop_event.set()
+
+    def _close_sockets(self):
+        """Close any open TCP client/listen sockets."""
+        if self.client_socket:
+            self.client_socket.close()
+            self.client_socket = None
+
+        if self.tcp_socket:
+            self.tcp_socket.close()
+            self.tcp_socket = None
+
     def _wait_backoff(self, backoff: float) -> float:
         """
         Wait out the current backoff, then return the next one.
@@ -318,7 +338,8 @@ class VirtualSerialPort:
                             print(
                                 f"Reconnection timeout after {elapsed:.1f}s, stopping"
                             )
-                            self.running = False
+                            self._mark_stopped()
+                            self._close_sockets()
                             break
                     backoff = self._wait_backoff(backoff)
                 else:
@@ -425,7 +446,7 @@ class VirtualSerialPort:
                 elapsed = time.time() - reconnect_attempt_start_time
                 if elapsed > self.reconnect_timeout_sec:
                     print(f"Reconnection timeout after {elapsed:.1f}s, stopping")
-                    self.running = False
+                    self._mark_stopped()
                     break
 
             backoff = self._wait_backoff(backoff)
@@ -461,16 +482,8 @@ class VirtualSerialPort:
 
     def stop(self):
         """Stop the virtual serial port."""
-        self.running = False
-        self._stop_event.set()
-
-        if self.client_socket:
-            self.client_socket.close()
-            self.client_socket = None
-
-        if self.tcp_socket:
-            self.tcp_socket.close()
-            self.tcp_socket = None
+        self._mark_stopped()
+        self._close_sockets()
 
         if self.master_fd is not None:
             os.close(self.master_fd)
