@@ -19,6 +19,10 @@ import serial
 class VirtualSerialPort:
     """Virtual serial port using PTY or TCP socket."""
 
+    # Shared reconnection backoff policy for TCP and device modes.
+    MAX_BACKOFF_SEC = 30.0  # Cap backoff at 30 seconds
+    MIN_BACKOFF_SEC = 0.05  # Floor so a 0ms backoff retries fast without spinning
+
     def __init__(
         self,
         mode: str = "pty",
@@ -45,7 +49,8 @@ class VirtualSerialPort:
             reconnect_backoff_ms: Initial backoff between retries in milliseconds
 
         Raises:
-            ValueError: If reconnect_timeout_sec or reconnect_backoff_ms is negative
+            ValueError: If reconnect_timeout_sec or reconnect_backoff_ms is
+                negative, or baudrate is not positive
         """
         if reconnect_timeout_sec < 0:
             raise ValueError(
@@ -55,6 +60,8 @@ class VirtualSerialPort:
             raise ValueError(
                 f"reconnect_backoff_ms must be >= 0, got {reconnect_backoff_ms}"
             )
+        if baudrate <= 0:
+            raise ValueError(f"baudrate must be > 0, got {baudrate}")
 
         self.mode = mode
         self.tcp_port = tcp_port
@@ -75,6 +82,7 @@ class VirtualSerialPort:
         self.running = False
         self.read_thread: Optional[threading.Thread] = None
         self.data_callback: Optional[Callable[[str], str]] = None
+        self._stop_event = threading.Event()
 
     def start(self, data_callback: Callable[[str], str]) -> bool:
         """
@@ -87,6 +95,7 @@ class VirtualSerialPort:
             True if started successfully, False otherwise
         """
         self.data_callback = data_callback
+        self._stop_event.clear()
 
         if self.mode == "pty":
             return self._start_pty()
@@ -254,10 +263,28 @@ class VirtualSerialPort:
                     print(f"PTY read error: {e}")
                 break
 
+    def _wait_backoff(self, backoff: float) -> float:
+        """
+        Wait out the current backoff, then return the next one.
+
+        The wait is interruptible: stop() sets the stop event, so a shutdown is
+        not delayed by up to MAX_BACKOFF_SEC. The delay is floored at
+        MIN_BACKOFF_SEC so that a configured backoff of 0ms retries promptly
+        instead of spinning the CPU, and capped at MAX_BACKOFF_SEC.
+
+        Args:
+            backoff: Current backoff in seconds
+
+        Returns:
+            The backoff to use for the next attempt (doubled, capped)
+        """
+        delay = min(max(backoff, self.MIN_BACKOFF_SEC), self.MAX_BACKOFF_SEC)
+        self._stop_event.wait(delay)
+        return min(delay * 2, self.MAX_BACKOFF_SEC)
+
     def _tcp_accept_loop(self):
         """Accept loop for TCP mode with reconnection support."""
         backoff = self.reconnect_backoff_ms / 1000.0
-        max_backoff = 30.0  # Cap backoff at 30 seconds
         reconnect_attempt_start_time: Optional[float] = None
 
         while self.running and self.tcp_socket:
@@ -276,8 +303,7 @@ class VirtualSerialPort:
                 if self.running:
                     reconnect_attempt_start_time = time.time()
                     print(f"Waiting {backoff:.1f}s before accepting new connection...")
-                    time.sleep(backoff)
-                    backoff = min(backoff * 2, max_backoff)  # Exponential backoff
+                    backoff = self._wait_backoff(backoff)
 
             except Exception as e:
                 if self.running:
@@ -292,9 +318,9 @@ class VirtualSerialPort:
                             print(
                                 f"Reconnection timeout after {elapsed:.1f}s, stopping"
                             )
+                            self.running = False
                             break
-                    time.sleep(backoff)
-                    backoff = min(backoff * 2, max_backoff)
+                    backoff = self._wait_backoff(backoff)
                 else:
                     break
 
@@ -365,7 +391,6 @@ class VirtualSerialPort:
     def _device_reconnect_loop(self):
         """Open (and re-open) the hardware serial device, with reconnection support."""
         backoff = self.reconnect_backoff_ms / 1000.0
-        max_backoff = 30.0  # Cap backoff at 30 seconds
         reconnect_attempt_start_time: Optional[float] = None
 
         while self.running:
@@ -400,10 +425,10 @@ class VirtualSerialPort:
                 elapsed = time.time() - reconnect_attempt_start_time
                 if elapsed > self.reconnect_timeout_sec:
                     print(f"Reconnection timeout after {elapsed:.1f}s, stopping")
+                    self.running = False
                     break
 
-            time.sleep(backoff)
-            backoff = min(backoff * 2, max_backoff)
+            backoff = self._wait_backoff(backoff)
 
     def _device_read_loop(self):
         """Read loop for real hardware device mode."""
@@ -437,6 +462,7 @@ class VirtualSerialPort:
     def stop(self):
         """Stop the virtual serial port."""
         self.running = False
+        self._stop_event.set()
 
         if self.client_socket:
             self.client_socket.close()

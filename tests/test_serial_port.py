@@ -1,5 +1,6 @@
 """Tests for VirtualSerialPort initialization and validation."""
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -212,3 +213,76 @@ class TestDeviceMode:
 
         # Should return promptly rather than raising or hanging.
         port._device_read_loop()
+
+
+class TestBaudrateValidation:
+    """Baudrate is validated up front, not deep inside pyserial."""
+
+    def test_zero_baudrate_raises_error(self):
+        """pyserial silently accepts baudrate=0, so reject it here."""
+        with pytest.raises(ValueError) as exc_info:
+            VirtualSerialPort(baudrate=0)
+        assert "baudrate must be > 0" in str(exc_info.value)
+
+    def test_negative_baudrate_raises_error(self):
+        """pyserial raises ValueError (not SerialException) too late to catch."""
+        with pytest.raises(ValueError) as exc_info:
+            VirtualSerialPort(baudrate=-115200)
+        assert "baudrate must be > 0" in str(exc_info.value)
+
+
+class TestBackoff:
+    """Reconnection backoff must not spin and must be interruptible."""
+
+    def test_zero_backoff_does_not_spin(self):
+        """A 0ms backoff is floored so a missing device cannot busy-loop."""
+        port = VirtualSerialPort(reconnect_backoff_ms=0)
+        port._stop_event.set()  # Return immediately; we only check the arithmetic.
+        assert port._wait_backoff(0.0) >= VirtualSerialPort.MIN_BACKOFF_SEC
+
+    def test_backoff_doubles_and_is_capped(self):
+        """Backoff grows exponentially but never exceeds the cap."""
+        port = VirtualSerialPort()
+        port._stop_event.set()  # Return immediately; we only check the arithmetic.
+        assert port._wait_backoff(0.1) == pytest.approx(0.2)
+        assert port._wait_backoff(1000.0) == VirtualSerialPort.MAX_BACKOFF_SEC
+
+    def test_wait_is_capped_at_max_backoff(self):
+        """An over-cap backoff must not wait longer than the cap."""
+        port = VirtualSerialPort()
+        with patch.object(port._stop_event, "wait") as mock_wait:
+            port._wait_backoff(1000.0)
+        mock_wait.assert_called_once_with(VirtualSerialPort.MAX_BACKOFF_SEC)
+
+    def test_wait_backoff_returns_early_when_stopped(self):
+        """stop() must wake a long backoff instead of sleeping it out."""
+        port = VirtualSerialPort()
+        port.stop()
+
+        start = time.time()
+        port._wait_backoff(VirtualSerialPort.MAX_BACKOFF_SEC)
+        assert time.time() - start < 1.0
+
+    def test_device_reconnect_loop_clears_running_on_timeout(self):
+        """Timing out must leave the port stopped, not falsely 'running'."""
+        port = VirtualSerialPort(
+            mode="device",
+            device_path="/dev/ttyUSB0",
+            reconnect_timeout_sec=1,
+            reconnect_backoff_ms=0,
+        )
+        port.running = True
+
+        clock = iter([0.0, 10.0])
+        last = [10.0]
+
+        def fake_time():
+            last[0] = next(clock, last[0])
+            return last[0]
+
+        with patch.object(port, "_open_device", return_value=False):
+            with patch.object(port, "_wait_backoff", return_value=0.0):
+                with patch("time.time", side_effect=fake_time):
+                    port._device_reconnect_loop()
+
+        assert port.running is False
