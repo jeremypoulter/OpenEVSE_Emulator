@@ -76,6 +76,8 @@ class OpenEVSEEmulator:
             mode=serial_config["mode"],
             tcp_port=serial_config["tcp_port"],
             pty_path=serial_config.get("pty_path"),
+            baudrate=serial_config.get("baudrate", 115200),
+            device_path=serial_config.get("device"),
             reconnect_timeout_sec=serial_config.get("reconnect_timeout_sec", 60),
             reconnect_backoff_ms=serial_config.get("reconnect_backoff_ms", 1000),
         )
