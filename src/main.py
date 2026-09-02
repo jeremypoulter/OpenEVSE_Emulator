@@ -75,11 +75,14 @@ class OpenEVSEEmulator:
         # Optional push of the simulated vehicle's battery state to a real
         # OpenEVSE. Misconfiguration here must not stop the emulator starting,
         # since the rest of it is still useful without telemetry.
+        reporting_config = self.config.get("reporting", {})
         try:
-            self.reporter = build_reporter(self.ev, self.config.get("reporting", {}))
+            self.reporter = build_reporter(self.ev, reporting_config)
         except ValueError as e:
             print(f"Vehicle telemetry reporting disabled: {e}")
-            self.reporter = build_reporter(self.ev, {})
+            print("Configure it at runtime with POST /api/reporting/config")
+            reporting_config = {}
+            self.reporter = build_reporter(self.ev, reporting_config)
 
         self.rapi = RAPIHandler(self.evse, self.ev)
 
@@ -104,6 +107,7 @@ class OpenEVSEEmulator:
             host=web_config["host"],
             port=web_config["port"],
             reporter=self.reporter,
+            reporting_config=reporting_config,
         )
 
         # Simulation state
@@ -163,7 +167,10 @@ class OpenEVSEEmulator:
         if self.simulation_thread:
             self.simulation_thread.join(timeout=2.0)
 
-        self.reporter.stop()
+        # The web API can replace the reporter at runtime, so stop whichever
+        # one is current rather than the one built at startup.
+        if self.web_api.reporter:
+            self.web_api.reporter.stop()
         self.serial_port.stop()
         print("Emulator stopped.")
 

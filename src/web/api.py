@@ -13,9 +13,13 @@ from typing import TYPE_CHECKING
 # Handle imports for both direct execution and test execution
 try:
     from emulator.evse import ErrorFlags
+    from emulator.config import merge_config
+    from emulator.telemetry import build_reporter
 except ImportError:
     # When imported as src.web.api from tests
     from ..emulator.evse import ErrorFlags
+    from ..emulator.config import merge_config
+    from ..emulator.telemetry import build_reporter
 
 if TYPE_CHECKING:
     try:
@@ -24,6 +28,34 @@ if TYPE_CHECKING:
     except ImportError:
         from ..emulator.evse import EVSEStateMachine
         from ..emulator.ev import EVSimulator
+
+
+SECRET_KEYS = ("password",)
+MASKED = "***"
+
+
+def _mask_secrets(config: dict) -> dict:
+    """
+    Copy a config with secret values replaced.
+
+    The reporting config carries the OpenEVSE and broker passwords, and this
+    API has no auth of its own, so they are never echoed back.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        A deep copy with secrets masked
+    """
+    masked = {}
+    for key, value in config.items():
+        if isinstance(value, dict):
+            masked[key] = _mask_secrets(value)
+        elif key in SECRET_KEYS and value:
+            masked[key] = MASKED
+        else:
+            masked[key] = value
+    return masked
 
 
 class WebAPI:
@@ -36,6 +68,7 @@ class WebAPI:
         host: str = "0.0.0.0",
         port: int = 8080,
         reporter=None,
+        reporting_config: dict | None = None,
     ):
         """
         Initialize the web API.
@@ -46,12 +79,15 @@ class WebAPI:
             host: Host to bind to
             port: Port to bind to
             reporter: Optional TelemetryReporter for the reporting endpoints
+            reporting_config: The 'reporting' config the reporter was built
+                from, used as the base for runtime reconfiguration
         """
         self.evse = evse
         self.ev = ev
         self.host = host
         self.port = port
         self.reporter = reporter
+        self.reporting_config = reporting_config or {}
 
         # Create Flask app
         self.app = Flask(
@@ -614,6 +650,44 @@ ws.onmessage = (event) => {
             self._broadcast_status()
             return jsonify({"success": True, "range_km_at_full": range_km})
 
+        @self.app.route("/api/reporting/config", methods=["GET"])
+        def get_reporting_config():
+            return jsonify(_mask_secrets(self.reporting_config))
+
+        @self.app.route("/api/reporting/config", methods=["POST"])
+        def set_reporting_config():
+            """
+            Merge a partial reporting config and rebuild the reporter.
+
+            The emulator is normally started before the OpenEVSE it reports to,
+            so the HTTP target is rarely known at launch. This applies settings
+            to the running emulator; it does not write config.json.
+            """
+            overrides = request.get_json(silent=True)
+            if not isinstance(overrides, dict):
+                return jsonify({"error": "A JSON object is required"}), 400
+
+            unknown = set(overrides) - {"interval_sec", "http", "mqtt"}
+            if unknown:
+                # A typo would otherwise be accepted and silently do nothing.
+                return (
+                    jsonify({"error": f"Unknown key(s): {', '.join(sorted(unknown))}"}),
+                    400,
+                )
+
+            try:
+                config = self._reconfigure_reporting(overrides)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+
+            return jsonify(
+                {
+                    "success": True,
+                    "config": _mask_secrets(config),
+                    "status": self.reporter.get_status(),
+                }
+            )
+
         @self.app.route("/api/reporting/status", methods=["GET"])
         def get_reporting_status():
             if self.reporter is None:
@@ -723,6 +797,39 @@ ws.onmessage = (event) => {
         self.socketio.emit(
             "state_change", {"state": int(new_state), "state_name": new_state.name}
         )
+
+    def _reconfigure_reporting(self, overrides: dict) -> dict:
+        """
+        Apply a partial reporting config, replacing the running reporter.
+
+        Args:
+            overrides: Partial 'reporting' config to merge over the current one
+
+        Returns:
+            The merged configuration now in effect
+
+        Raises:
+            ValueError: If the merged configuration is invalid, in which case
+                the existing reporter is left untouched and still running
+        """
+        merged = merge_config(self.reporting_config, overrides)
+
+        # Built before anything is torn down: an invalid config must raise
+        # here, leaving the current reporter running rather than stopping it
+        # and then failing to replace it.
+        replacement = build_reporter(self.ev, merged)
+
+        if self.reporter is not None:
+            self.reporter.stop()
+
+        self.reporter = replacement
+        self.reporting_config = merged
+
+        # A no-op when no transport is configured, so this also covers
+        # disabling reporting entirely.
+        replacement.start()
+
+        return merged
 
     def _broadcast_status(self):
         """Broadcast status update via WebSocket."""

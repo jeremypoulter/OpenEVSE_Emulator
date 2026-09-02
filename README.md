@@ -310,6 +310,32 @@ one its `vehicle_data_src` selects.
 Every setting also has an environment variable (`REPORTING_HTTP_URL`,
 `REPORTING_MQTT_HOST`, ...) for Docker deployments.
 
+### Configuring at runtime
+
+The emulator is usually started before the OpenEVSE it reports to, so the HTTP
+URL and credentials often are not known at launch. `POST /api/reporting/config`
+applies them to the running emulator:
+
+```bash
+curl -X POST localhost:8080/api/reporting/config \
+  -H 'Content-Type: application/json' \
+  -d '{"http": {"enabled": true, "url": "http://openevse.local",
+                "username": "admin", "password": "secret"}}'
+```
+
+Only the keys you supply change, so the interval can be adjusted on its own
+with `{"interval_sec": 10}`, and reporting turned off again with
+`{"http": {"enabled": false}}`. Enabling a transport needs an explicit
+`"enabled": true`. If the merged configuration is invalid the request fails
+with 400 and the existing reporter keeps running untouched.
+
+This affects the running emulator only - it does not write `config.json`.
+`GET /api/reporting/config` returns the settings in effect, with passwords
+masked.
+
+MQTT can be reconfigured the same way, though it rarely needs to be: the broker
+address is generally known up front, and it is the OpenEVSE that connects to it.
+
 ### Checking it works
 
 ```bash

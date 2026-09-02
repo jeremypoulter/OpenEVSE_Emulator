@@ -344,3 +344,18 @@ class TestBuildReporter:
             EVSimulator(), {"http": {"enabled": False, "url": None}}
         )
         assert reporter.enabled is False
+
+
+class TestHttpAuthCoercion:
+    """Basic auth components must be strings, never None."""
+
+    def test_password_only_sends_an_empty_username(self):
+        reporter = HttpTelemetryReporter(url="http://evse", password="p")
+        assert reporter.auth == ("", "p")
+
+    def test_username_only_sends_an_empty_password(self):
+        reporter = HttpTelemetryReporter(url="http://evse", username="u")
+        assert reporter.auth == ("u", "")
+
+    def test_no_credentials_means_no_auth(self):
+        assert HttpTelemetryReporter(url="http://evse").auth is None

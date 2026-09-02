@@ -776,3 +776,126 @@ class TestVehicleTelemetryEndpoints:
 
         assert data["results"] == {"http": True}
         assert data["telemetry"]["battery_level"] == ev.soc
+
+
+class TestReportingConfigEndpoint:
+    """Runtime reconfiguration of telemetry reporting.
+
+    The emulator is normally started before the OpenEVSE it reports to, so the
+    HTTP target has to be settable after launch.
+    """
+
+    def _api(self, evse, ev, config=None):
+        from src.emulator.telemetry import build_reporter
+
+        config = config or {}
+        api = WebAPI(
+            evse,
+            ev,
+            host="127.0.0.1",
+            port=8080,
+            reporter=build_reporter(ev, config),
+            reporting_config=config,
+        )
+        api.app.config["TESTING"] = True
+        return api
+
+    def test_get_returns_current_config(self, evse, ev):
+        api = self._api(evse, ev, {"interval_sec": 30})
+        with api.app.test_client() as client:
+            data = json.loads(client.get("/api/reporting/config").data)
+        assert data["interval_sec"] == 30
+
+    def test_http_target_can_be_set_after_startup(self, evse, ev):
+        api = self._api(evse, ev)
+
+        with api.app.test_client() as client:
+            response = client.post(
+                "/api/reporting/config",
+                json={"http": {"enabled": True, "url": "http://openevse.local"}},
+            )
+
+        assert response.status_code == 200
+        assert api.reporter.enabled is True
+        assert api.reporter.http.url == "http://openevse.local/status"
+        api.reporter.stop()
+
+    def test_partial_update_keeps_other_settings(self, evse, ev):
+        api = self._api(
+            evse,
+            ev,
+            {
+                "interval_sec": 30,
+                "http": {"enabled": True, "url": "http://evse", "username": "admin"},
+            },
+        )
+
+        with api.app.test_client() as client:
+            client.post("/api/reporting/config", json={"interval_sec": 5})
+
+        assert api.reporting_config["interval_sec"] == 5
+        assert api.reporting_config["http"]["username"] == "admin"
+        assert api.reporter.http.url == "http://evse/status"
+        api.reporter.stop()
+
+    def test_reporting_can_be_disabled_again(self, evse, ev):
+        api = self._api(evse, ev, {"http": {"enabled": True, "url": "http://evse"}})
+
+        with api.app.test_client() as client:
+            client.post("/api/reporting/config", json={"http": {"enabled": False}})
+
+        assert api.reporter.enabled is False
+        assert api.reporter.running is False
+
+    def test_invalid_config_leaves_the_reporter_running(self, evse, ev):
+        """A bad update must not tear down working reporting."""
+        api = self._api(evse, ev, {"http": {"enabled": True, "url": "http://evse"}})
+        api.reporter.start()
+        original = api.reporter
+
+        with api.app.test_client() as client:
+            response = client.post(
+                "/api/reporting/config", json={"mqtt": {"enabled": True}}
+            )
+
+        assert response.status_code == 400
+        assert api.reporter is original
+        assert api.reporter.running is True
+        api.reporter.stop()
+
+    def test_unknown_key_is_rejected(self, evse, ev):
+        """A typo would otherwise be merged in and silently do nothing."""
+        api = self._api(evse, ev)
+
+        with api.app.test_client() as client:
+            response = client.post("/api/reporting/config", json={"htp": {}})
+
+        assert response.status_code == 400
+        assert "htp" in json.loads(response.data)["error"]
+
+    def test_non_object_body_is_rejected(self, evse, ev):
+        api = self._api(evse, ev)
+        with api.app.test_client() as client:
+            assert client.post("/api/reporting/config", json=[]).status_code == 400
+
+    def test_passwords_are_never_echoed_back(self, evse, ev):
+        api = self._api(evse, ev)
+
+        with api.app.test_client() as client:
+            posted = client.post(
+                "/api/reporting/config",
+                json={
+                    "http": {
+                        "enabled": True,
+                        "url": "http://evse",
+                        "password": "hunter2",
+                    }
+                },
+            )
+            fetched = client.get("/api/reporting/config")
+
+        assert "hunter2" not in posted.get_data(as_text=True)
+        assert "hunter2" not in fetched.get_data(as_text=True)
+        # The real password is still in use, just not echoed.
+        assert api.reporter.http.auth == ("", "hunter2")
+        api.reporter.stop()

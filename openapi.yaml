@@ -369,6 +369,77 @@ paths:
         '400':
           description: Invalid range value
 
+  /api/reporting/config:
+    get:
+      tags:
+        - Reporting
+      summary: Get the vehicle telemetry reporting configuration
+      description: >
+        Returns the reporting configuration currently in effect. Passwords are
+        masked.
+      operationId: getReportingConfig
+      responses:
+        '200':
+          description: Current reporting configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportingConfig'
+    post:
+      tags:
+        - Reporting
+      summary: Configure vehicle telemetry reporting at runtime
+      description: >
+        Merge a partial reporting configuration and rebuild the reporter.
+        Intended for the usual case where the emulator is started before the
+        OpenEVSE it reports to, so the HTTP URL and credentials are not known
+        at launch. Only the keys supplied are changed. Enabling a transport
+        requires an explicit "enabled": true. If the merged configuration is
+        invalid the request fails and the existing reporter keeps running.
+        This applies to the running emulator only; it does not write
+        config.json.
+      operationId: setReportingConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportingConfig'
+            examples:
+              pointAtAnOpenEVSE:
+                summary: Point a running emulator at an OpenEVSE
+                value:
+                  http:
+                    enabled: true
+                    url: http://openevse.local
+                    username: admin
+                    password: secret
+              changeInterval:
+                summary: Change only the push interval
+                value:
+                  interval_sec: 10
+              disable:
+                summary: Turn HTTP reporting off again
+                value:
+                  http:
+                    enabled: false
+      responses:
+        '200':
+          description: Configuration applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  config:
+                    $ref: '#/components/schemas/ReportingConfig'
+                  status:
+                    type: object
+        '400':
+          description: Invalid configuration; the previous reporter still runs
+
   /api/reporting/status:
     get:
       tags:
@@ -609,6 +680,63 @@ paths:
 
 components:
   schemas:
+    ReportingConfig:
+      type: object
+      description: >
+        Vehicle telemetry reporting settings. Both transports are independent
+        and may be enabled together, though a single OpenEVSE only honours the
+        one its vehicle_data_src selects (3 for HTTP, 2 for MQTT).
+      properties:
+        interval_sec:
+          type: number
+          description: Seconds between pushes
+          example: 30
+        http:
+          type: object
+          description: Push to the OpenEVSE's POST /status endpoint
+          properties:
+            enabled:
+              type: boolean
+            url:
+              type: string
+              description: Base URL; /status is appended if not already present
+              example: http://openevse.local
+            username:
+              type: string
+              nullable: true
+            password:
+              type: string
+              nullable: true
+              description: Masked as *** in responses
+            timeout_sec:
+              type: number
+        mqtt:
+          type: object
+          description: Publish each field to a broker as a scalar payload
+          properties:
+            enabled:
+              type: boolean
+            host:
+              type: string
+            port:
+              type: integer
+            username:
+              type: string
+              nullable: true
+            password:
+              type: string
+              nullable: true
+              description: Masked as *** in responses
+            topic_prefix:
+              type: string
+              example: emulator/vehicle
+            topics:
+              type: object
+              description: Per-field topic overrides
+              additionalProperties:
+                type: string
+            retain:
+              type: boolean
     EvseStatus:
       type: object
       properties:

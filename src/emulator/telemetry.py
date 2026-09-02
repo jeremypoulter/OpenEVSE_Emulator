@@ -125,7 +125,10 @@ class HttpTelemetryReporter:
             raise ValueError("HTTP reporting requires a URL")
 
         self.url = status_url(url)
-        self.auth = (username, password) if username or password else None
+        # Both halves must be strings: requests deprecates None components, and
+        # the firmware keys auth on the password anyway, substituting a default
+        # admin user for a blank username.
+        self.auth = (username or "", password or "") if username or password else None
         self.timeout_sec = timeout_sec
 
         self.last_error: Optional[str] = None
