@@ -408,3 +408,27 @@ class TestSpecMatchesImplementation:
             api_client.post("/api/ev/range", json={"range_km_at_full": 0}).status_code
             == 400
         )
+
+    def test_nullable_reporting_fields_are_declared_nullable(self, openapi_spec):
+        """
+        Every field that can come back null must say so in the schema.
+
+        Reporting is disabled by default, so an unconfigured emulator returns
+        null for the target it has not been given yet. A generated client
+        built from a non-nullable schema would reject that valid response.
+        Checked against the real default config rather than a hardcoded list,
+        so a future nullable option cannot slip through.
+        """
+        from src.emulator.config import default_config
+
+        schema = openapi_spec["components"]["schemas"]["ReportingConfig"]
+        reporting = default_config()["reporting"]
+
+        for section in ("http", "mqtt"):
+            properties = schema["properties"][section]["properties"]
+            for key, value in reporting[section].items():
+                if value is None:
+                    assert properties[key].get("nullable") is True, (
+                        f"reporting.{section}.{key} defaults to null but is "
+                        f"not declared nullable"
+                    )

@@ -716,7 +716,10 @@ components:
               type: boolean
             url:
               type: string
-              description: Base URL; /status is appended if not already present
+              nullable: true
+              description: >
+                Base URL; /status is appended if not already present. Null
+                until an OpenEVSE has been configured.
               example: http://openevse.local
             username:
               type: string
@@ -735,6 +738,8 @@ components:
               type: boolean
             host:
               type: string
+              nullable: true
+              description: Null until a broker has been configured
             port:
               type: integer
             username:
