@@ -189,8 +189,9 @@ def _parse_bool(value: str) -> bool:
     """
     Parse a boolean from an environment variable.
 
-    Accepts the usual truthy spellings; anything else is false. Raises so the
-    override machinery can report it like any other bad value.
+    Accepts the usual truthy and falsy spellings. Anything else raises, so the
+    override machinery reports it like any other bad value and leaves the
+    existing setting in place.
 
     Args:
         value: String to parse

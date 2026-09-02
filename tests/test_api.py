@@ -873,6 +873,53 @@ class TestReportingConfigEndpoint:
         assert response.status_code == 400
         assert "htp" in json.loads(response.data)["error"]
 
+    def test_unknown_nested_key_is_rejected(self, evse, ev):
+        """A typo inside a section is the same silent no-op, one level down."""
+        api = self._api(evse, ev, {"http": {"enabled": False, "url": None}})
+
+        with api.app.test_client() as client:
+            response = client.post(
+                "/api/reporting/config", json={"http": {"enabeld": True}}
+            )
+
+        assert response.status_code == 400
+        assert "enabeld" in json.loads(response.data)["error"]
+        # The bad key must not have been merged into the stored config.
+        assert "enabeld" not in api.reporting_config["http"]
+
+    def test_unknown_nested_mqtt_key_is_rejected(self, evse, ev):
+        api = self._api(evse, ev)
+
+        with api.app.test_client() as client:
+            response = client.post(
+                "/api/reporting/config", json={"mqtt": {"hostname": "broker"}}
+            )
+
+        assert response.status_code == 400
+        assert "hostname" in json.loads(response.data)["error"]
+
+    def test_non_object_section_is_a_bad_request_not_a_crash(self, evse, ev):
+        """A scalar section would otherwise replace the dict and 500."""
+        api = self._api(evse, ev, {"http": {"enabled": False, "url": None}})
+
+        with api.app.test_client() as client:
+            response = client.post("/api/reporting/config", json={"http": "yes"})
+
+        assert response.status_code == 400
+        assert isinstance(api.reporting_config["http"], dict)
+
+    def test_every_config_key_is_accepted(self, evse, ev):
+        """The allow-list must not reject a key the config file supports."""
+        from src.emulator.config import default_config
+
+        api = self._api(evse, ev)
+        reporting = default_config()["reporting"]
+
+        with api.app.test_client() as client:
+            response = client.post("/api/reporting/config", json=reporting)
+
+        assert response.status_code == 200
+
     def test_non_object_body_is_rejected(self, evse, ev):
         api = self._api(evse, ev)
         with api.app.test_client() as client:

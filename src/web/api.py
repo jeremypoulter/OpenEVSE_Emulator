@@ -8,7 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 # Handle imports for both direct execution and test execution
 try:
@@ -28,6 +28,56 @@ if TYPE_CHECKING:
     except ImportError:
         from ..emulator.evse import EVSEStateMachine
         from ..emulator.ev import EVSimulator
+
+
+# Keys accepted by POST /api/reporting/config, mirroring the 'reporting' config
+# section. Checked explicitly because merge_config would otherwise fold a typo
+# into the stored config, where it would sit looking applied and doing nothing.
+REPORTING_SECTION_KEYS = {
+    "http": {"enabled", "url", "username", "password", "timeout_sec"},
+    "mqtt": {
+        "enabled",
+        "host",
+        "port",
+        "username",
+        "password",
+        "topic_prefix",
+        "topics",
+        "retain",
+    },
+}
+REPORTING_SCALAR_KEYS = {"interval_sec"}
+
+
+def _validate_reporting_overrides(overrides: dict) -> Optional[str]:
+    """
+    Check a partial reporting config for unknown keys and wrong shapes.
+
+    Args:
+        overrides: Partial 'reporting' config from a request body
+
+    Returns:
+        An error message, or None when the overrides are acceptable
+    """
+    unknown = set(overrides) - set(REPORTING_SECTION_KEYS) - REPORTING_SCALAR_KEYS
+    if unknown:
+        return f"Unknown key(s): {', '.join(sorted(unknown))}"
+
+    for section, allowed in REPORTING_SECTION_KEYS.items():
+        if section not in overrides:
+            continue
+
+        value = overrides[section]
+        if not isinstance(value, dict):
+            # Without this a scalar replaces the whole section and then blows
+            # up inside build_reporter as a 500 rather than a clean 400.
+            return f"'{section}' must be an object"
+
+        unknown = set(value) - allowed
+        if unknown:
+            return f"Unknown {section} key(s): {', '.join(sorted(unknown))}"
+
+    return None
 
 
 SECRET_KEYS = ("password",)
@@ -667,13 +717,9 @@ ws.onmessage = (event) => {
             if not isinstance(overrides, dict):
                 return jsonify({"error": "A JSON object is required"}), 400
 
-            unknown = set(overrides) - {"interval_sec", "http", "mqtt"}
-            if unknown:
-                # A typo would otherwise be accepted and silently do nothing.
-                return (
-                    jsonify({"error": f"Unknown key(s): {', '.join(sorted(unknown))}"}),
-                    400,
-                )
+            error = _validate_reporting_overrides(overrides)
+            if error:
+                return jsonify({"error": error}), 400
 
             try:
                 config = self._reconfigure_reporting(overrides)

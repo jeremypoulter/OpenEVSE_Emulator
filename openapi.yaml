@@ -332,7 +332,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  charge_limit_soc:
+                    type: number
+                    format: float
+                    example: 80.0
         '400':
           description: Invalid charge limit value
 
@@ -358,6 +366,7 @@ paths:
                   type: number
                   format: float
                   minimum: 0
+                  exclusiveMinimum: true
                   example: 400.0
       responses:
         '200':
@@ -365,7 +374,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  range_km_at_full:
+                    type: number
+                    format: float
+                    example: 400.0
         '400':
           description: Invalid range value
 
