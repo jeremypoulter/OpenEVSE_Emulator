@@ -9,6 +9,11 @@ let currentState = {
     ev: {}
 };
 
+// The charge limit only ever changes from this panel, so it is seeded once from
+// the server (to pick up a configured value) and then left alone. Re-syncing it
+// on every poll would snap the slider back while it is being dragged.
+let chargeLimitSeeded = false;
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeControls();
@@ -285,9 +290,12 @@ function updateDisplay() {
     document.getElementById('battery-soc-value').textContent = ev.soc;
 
     // Charging stops here, so a limit below the current SoC means no charge.
-    const chargeLimit = ev.charge_limit_soc ?? 100;
-    document.getElementById('charge-limit').value = chargeLimit;
-    document.getElementById('charge-limit-value').textContent = chargeLimit;
+    if (!chargeLimitSeeded) {
+        const chargeLimit = ev.charge_limit_soc ?? 100;
+        document.getElementById('charge-limit').value = chargeLimit;
+        document.getElementById('charge-limit-value').textContent = chargeLimit;
+        chargeLimitSeeded = true;
+    }
 
     // Sync direct mode UI
     const directModeToggle = document.getElementById('direct-mode-toggle');
