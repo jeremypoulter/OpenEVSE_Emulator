@@ -351,6 +351,9 @@ class TestVehicleTelemetryState:
 
         assert ev.soc == 60.0
         assert ev.actual_charge_rate_kw == 0.0
+        # Must match the mid-charge path, which also clears the request; a
+        # standing request that can never be satisfied is not honest state.
+        assert ev.requesting_charge is False
 
     def test_eta_is_zero_when_idle(self):
         assert EVSimulator().time_to_full_charge_sec == 0

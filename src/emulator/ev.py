@@ -273,6 +273,11 @@ class EVSimulator:
             # Battery emulation mode
             charge_ceiling = min(100.0, self._charge_limit_soc)
             if self._soc >= charge_ceiling:
+                # Same outcome as reaching the ceiling mid-charge below: the
+                # vehicle stops asking. Leaving the flag set would report a
+                # request that can never be satisfied, which is what happens
+                # when the charge limit is lowered below the current SoC.
+                self._requesting_charge = False
                 self._actual_charge_rate_kw = 0.0
                 return
 

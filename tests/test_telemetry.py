@@ -359,3 +359,59 @@ class TestHttpAuthCoercion:
 
     def test_no_credentials_means_no_auth(self):
         assert HttpTelemetryReporter(url="http://evse").auth is None
+
+
+class TestConfigTypeValidation:
+    """
+    Wrong types must raise ValueError, not crash.
+
+    Callers rely on that: startup disables reporting with a message, and
+    POST /api/reporting/config returns a 400. Anything else surfaces as a
+    traceback or a 500 instead of a usable error.
+    """
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"url": 1234},
+            {"url": ["http://evse"]},
+            {"url": "http://evse", "timeout_sec": "soon"},
+            {"url": "http://evse", "username": 1},
+            {"url": "http://evse", "password": []},
+        ],
+    )
+    def test_http_rejects_wrong_types(self, kwargs):
+        with pytest.raises(ValueError):
+            HttpTelemetryReporter(**kwargs)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"host": 42},
+            {"host": "broker", "port": "soon"},
+            {"host": "broker", "topics": 42},
+            {"host": "broker", "topics": {"battery_level": 5}},
+            {"host": "broker", "topic_prefix": 7},
+            {"host": "broker", "username": 1},
+        ],
+    )
+    def test_mqtt_rejects_wrong_types(self, kwargs):
+        with pytest.raises(ValueError):
+            MqttTelemetryReporter(**kwargs)
+
+    @pytest.mark.parametrize("interval", ["fast", None, [], {}])
+    def test_interval_rejects_wrong_types(self, interval):
+        with pytest.raises(ValueError):
+            TelemetryReporter(EVSimulator(), interval_sec=interval)
+
+    def test_numeric_strings_are_accepted(self):
+        """Config files and JSON bodies routinely carry numbers as strings."""
+        reporter = TelemetryReporter(EVSimulator(), interval_sec="15")
+        assert reporter.interval_sec == 15.0
+        assert MqttTelemetryReporter(host="broker", port="8883").port == 8883
+
+    def test_error_names_the_setting(self):
+        """The message has to say which setting, not just that one is wrong."""
+        with pytest.raises(ValueError) as exc_info:
+            MqttTelemetryReporter(host="broker", topic_prefix=7)
+        assert "reporting.mqtt.topic_prefix" in str(exc_info.value)

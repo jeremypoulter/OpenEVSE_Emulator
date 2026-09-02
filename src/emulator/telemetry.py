@@ -52,6 +52,68 @@ DEFAULT_MQTT_PORT = 1883
 DEFAULT_MQTT_TOPIC_PREFIX = "emulator/vehicle"
 
 
+def _require_number(value, name: str, minimum: Optional[float] = None) -> float:
+    """
+    Coerce a configured value to a number.
+
+    Args:
+        value: Configured value
+        name: Setting name, for the error message
+        minimum: If given, the value must be strictly greater than this
+
+    Returns:
+        The value as a float
+
+    Raises:
+        ValueError: If the value is not numeric, or not above minimum
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a number, got {value!r}") from None
+
+    if minimum is not None and number <= minimum:
+        raise ValueError(f"{name} must be > {minimum:g}, got {number:g}")
+
+    return number
+
+
+def _require_text(value, name: str) -> str:
+    """
+    Check a configured value is a string.
+
+    Args:
+        value: Configured value
+        name: Setting name, for the error message
+
+    Returns:
+        The value
+
+    Raises:
+        ValueError: If the value is not a string
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string, got {type(value).__name__}")
+    return value
+
+
+def _optional_text(value, name: str) -> Optional[str]:
+    """
+    Check a configured value is a string or None.
+
+    Args:
+        value: Configured value
+        name: Setting name, for the error message
+
+    Returns:
+        The value
+
+    Raises:
+        ValueError: If the value is neither a string nor None
+    """
+    return None if value is None else _require_text(value, name)
+
+
 def build_telemetry(ev) -> dict:
     """
     Read the current vehicle telemetry from an EV simulator.
@@ -86,8 +148,10 @@ def status_url(url: str) -> str:
         The full status endpoint URL
 
     Raises:
-        ValueError: If the URL has no scheme or host
+        ValueError: If the URL is not a string, or has no scheme or host
     """
+    _require_text(url, "reporting.http.url")
+
     parsed = urlparse(url if "://" in url else f"http://{url}")
     if not parsed.scheme or not parsed.netloc:
         raise ValueError(f"Invalid OpenEVSE URL: {url!r}")
@@ -119,17 +183,22 @@ class HttpTelemetryReporter:
             timeout_sec: Per-request timeout in seconds
 
         Raises:
-            ValueError: If url is empty or malformed
+            ValueError: If url is empty or malformed, or any setting has the
+                wrong type
         """
         if not url:
             raise ValueError("HTTP reporting requires a URL")
 
         self.url = status_url(url)
+        username = _optional_text(username, "reporting.http.username")
+        password = _optional_text(password, "reporting.http.password")
         # Both halves must be strings: requests deprecates None components, and
         # the firmware keys auth on the password anyway, substituting a default
         # admin user for a blank username.
         self.auth = (username or "", password or "") if username or password else None
-        self.timeout_sec = timeout_sec
+        self.timeout_sec = _require_number(
+            timeout_sec, "reporting.http.timeout_sec", minimum=0
+        )
 
         self.last_error: Optional[str] = None
         # Latched so a misconfigured vehicle_data_src is reported once, not
@@ -229,27 +298,36 @@ class MqttTelemetryReporter:
                 (re)subscribe rather than waiting a full interval
 
         Raises:
-            ValueError: If host is empty or an override names an unknown field
+            ValueError: If host is empty, an override names an unknown field,
+                or any setting has the wrong type
         """
         if not host:
             raise ValueError("MQTT reporting requires a broker host")
 
         overrides = topics or {}
+        if not isinstance(overrides, dict):
+            raise ValueError(
+                f"reporting.mqtt.topics must be an object, got "
+                f"{type(topics).__name__}"
+            )
+
         unknown = set(overrides) - set(TELEMETRY_FIELDS)
         if unknown:
             raise ValueError(
                 f"Unknown MQTT telemetry field(s): {', '.join(sorted(unknown))}"
             )
 
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.retain = retain
+        for field, topic in overrides.items():
+            _require_text(topic, f"reporting.mqtt.topics.{field}")
+
+        self.host = _require_text(host, "reporting.mqtt.host")
+        self.port = int(_require_number(port, "reporting.mqtt.port", minimum=0))
+        self.username = _optional_text(username, "reporting.mqtt.username")
+        self.password = _optional_text(password, "reporting.mqtt.password")
+        self.retain = bool(retain)
+        prefix = _require_text(topic_prefix, "reporting.mqtt.topic_prefix").rstrip("/")
         self.topics = {
-            field: overrides.get(
-                field, f"{topic_prefix.rstrip('/')}/{DEFAULT_MQTT_SUFFIXES[field]}"
-            )
+            field: overrides.get(field, f"{prefix}/{DEFAULT_MQTT_SUFFIXES[field]}")
             for field in TELEMETRY_FIELDS
         }
 
@@ -335,13 +413,12 @@ class TelemetryReporter:
             mqtt: Optional MQTT transport
 
         Raises:
-            ValueError: If interval_sec is not positive
+            ValueError: If interval_sec is not a positive number
         """
-        if interval_sec <= 0:
-            raise ValueError(f"interval_sec must be > 0, got {interval_sec}")
-
         self.ev = ev
-        self.interval_sec = interval_sec
+        self.interval_sec = _require_number(
+            interval_sec, "reporting.interval_sec", minimum=0
+        )
         self.http = http
         self.mqtt = mqtt
 
