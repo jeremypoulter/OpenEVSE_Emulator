@@ -475,3 +475,46 @@ class TestBooleanValidation:
         assert (
             build_reporter(EVSimulator(), {"http": {"enabled": False}}).enabled is False
         )
+
+
+class TestStopThreadReference:
+    """stop() must not hide a thread that is still running."""
+
+    def test_reference_kept_when_the_join_times_out(self):
+        """
+        An in-flight HTTP push can outlast the 2s join, since its own timeout
+        defaults to 5s. Clearing the reference then would let start() run a
+        second thread alongside the first.
+        """
+        reporter = TelemetryReporter(EVSimulator(), http=MagicMock())
+        stuck = MagicMock()
+        stuck.is_alive.return_value = True
+        reporter.thread = stuck
+        reporter.running = True
+
+        reporter.stop()
+
+        assert reporter.thread is stuck
+
+    def test_reference_cleared_when_the_thread_stopped(self):
+        reporter = TelemetryReporter(EVSimulator(), http=MagicMock())
+        finished = MagicMock()
+        finished.is_alive.return_value = False
+        reporter.thread = finished
+        reporter.running = True
+
+        reporter.stop()
+
+        assert reporter.thread is None
+
+    def test_start_will_not_duplicate_a_stuck_thread(self):
+        """The two guarantees have to hold together, not just separately."""
+        reporter = TelemetryReporter(EVSimulator(), http=MagicMock())
+        stuck = MagicMock()
+        stuck.is_alive.return_value = True
+        reporter.thread = stuck
+        reporter.running = True
+        reporter.stop()
+
+        assert reporter.start() is True
+        assert reporter.thread is stuck

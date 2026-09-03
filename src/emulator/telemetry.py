@@ -365,7 +365,7 @@ class MqttTelemetryReporter:
         # when the optional dependency is missing.
         import paho.mqtt.client as mqtt
 
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         if self.username or self.password:
             client.username_pw_set(self.username, self.password)
 
@@ -494,7 +494,12 @@ class TelemetryReporter:
 
         if self.thread:
             self.thread.join(timeout=2.0)
-            self.thread = None
+            # Only drop the reference once it has really stopped. An in-flight
+            # HTTP push can outlast this join (its own timeout defaults to 5s),
+            # and clearing regardless would hide a live thread from start(),
+            # which would then run a second one alongside it.
+            if not self.thread.is_alive():
+                self.thread = None
 
         if self.mqtt:
             self.mqtt.close()
