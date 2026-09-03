@@ -386,10 +386,23 @@ class MqttTelemetryReporter:
         Returns:
             True if every field was published
         """
+        import paho.mqtt.client as mqtt
+
         try:
             client = self._connect()
             for field, value in telemetry.items():
-                client.publish(self.topics[field], str(value), retain=self.retain)
+                info = client.publish(
+                    self.topics[field], str(value), retain=self.retain
+                )
+                # publish() reports a dead connection through rc rather than
+                # raising, so without this a disconnected broker looks like a
+                # clean success - the exact silent failure this feature exists
+                # to make visible.
+                if info.rc != mqtt.MQTT_ERR_SUCCESS:
+                    raise RuntimeError(
+                        f"publish to {self.topics[field]} failed: "
+                        f"{mqtt.error_string(info.rc)}"
+                    )
         except Exception as e:
             self.last_error = f"{type(e).__name__}: {e}"
             print(f"Vehicle telemetry MQTT publish failed: {self.last_error}")

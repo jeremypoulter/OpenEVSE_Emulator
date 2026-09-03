@@ -563,6 +563,11 @@ To test the emulator with actual OpenEVSE WiFi firmware:
   localhost-only access, change `web.host` to `127.0.0.1` in `config.json`.
 - **No Authentication**: The emulator does not include authentication. Do not
   expose it to untrusted networks.
+- **Outbound Requests**: Telemetry reporting can be configured over the API, so
+  anyone who can reach it can point the emulator at a URL or broker of their
+  choosing and make it issue requests there. That is a wider reach than the rest
+  of the API, which only affects local simulation state. Keep the emulator off
+  untrusted networks, or bind it to `127.0.0.1`, if that matters to you.
 - **Development Use**: This emulator is intended for development and testing purposes only.
 
 ## Documentation

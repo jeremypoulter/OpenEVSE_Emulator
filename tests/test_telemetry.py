@@ -207,6 +207,7 @@ class TestMqttTelemetryReporter:
         """The firmware parses payloads with toInt(), so they must be scalars."""
         reporter = MqttTelemetryReporter(host="broker", topic_prefix="car")
         client = MagicMock()
+        client.publish.return_value.rc = 0
 
         with patch.object(reporter, "_connect", return_value=client):
             assert reporter.send({"battery_level": 42.0}) is True
@@ -518,3 +519,36 @@ class TestStopThreadReference:
 
         assert reporter.start() is True
         assert reporter.thread is stuck
+
+
+class TestMqttPublishResult:
+    """A publish that fails without raising must not look like a success."""
+
+    def test_non_zero_rc_is_a_failure(self):
+        """
+        paho reports a dead connection through rc rather than an exception, so
+        a disconnected broker would otherwise report a clean push.
+        """
+        import paho.mqtt.client as mqtt
+
+        reporter = MqttTelemetryReporter(host="broker")
+        client = MagicMock()
+        client.publish.return_value.rc = mqtt.MQTT_ERR_NO_CONN
+        reporter._client = client
+
+        with patch.object(reporter, "_connect", return_value=client):
+            assert reporter.send({"battery_level": 1.0}) is False
+
+        assert reporter.last_error is not None
+        # Dropped so the next interval reconnects, as on the exception path.
+        assert reporter._client is None
+
+    def test_zero_rc_is_a_success(self):
+        reporter = MqttTelemetryReporter(host="broker")
+        client = MagicMock()
+        client.publish.return_value.rc = 0
+
+        with patch.object(reporter, "_connect", return_value=client):
+            assert reporter.send({"battery_level": 1.0}) is True
+
+        assert reporter.last_error is None
