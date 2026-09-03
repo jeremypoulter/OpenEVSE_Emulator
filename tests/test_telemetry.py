@@ -415,3 +415,35 @@ class TestConfigTypeValidation:
         with pytest.raises(ValueError) as exc_info:
             MqttTelemetryReporter(host="broker", topic_prefix=7)
         assert "reporting.mqtt.topic_prefix" in str(exc_info.value)
+
+
+class TestStartIsIdempotent:
+    """start() must not spawn a second thread for the same reporter."""
+
+    def test_second_start_does_not_spawn_another_thread(self):
+        http = MagicMock()
+        http.send.return_value = True
+        reporter = TelemetryReporter(EVSimulator(), interval_sec=60, http=http)
+
+        assert reporter.start() is True
+        first = reporter.thread
+
+        # The old thread was previously left running and publishing, with the
+        # reference overwritten so nothing could reach it.
+        assert reporter.start() is True
+        assert reporter.thread is first
+
+        reporter.stop()
+
+    def test_start_after_stop_runs_again(self):
+        """Idempotency must not wedge a reporter that was legitimately stopped."""
+        http = MagicMock()
+        http.send.return_value = True
+        reporter = TelemetryReporter(EVSimulator(), interval_sec=60, http=http)
+
+        reporter.start()
+        reporter.stop()
+
+        assert reporter.start() is True
+        assert reporter.thread is not None
+        reporter.stop()

@@ -437,11 +437,17 @@ class TelemetryReporter:
         Start periodic reporting.
 
         Returns:
-            True if a reporting thread was started, False if no transport is
-            configured (which is the normal disabled case, not an error)
+            True if reporting is running, False if no transport is configured
+            (which is the normal disabled case, not an error). Calling this on
+            an already-running reporter is a no-op.
         """
         if not self.enabled:
             return False
+
+        if self.thread is not None and self.thread.is_alive():
+            # Starting again would leave the previous thread running and
+            # publishing, doubling the push rate with no way to reach it.
+            return True
 
         transports = []
         if self.http:

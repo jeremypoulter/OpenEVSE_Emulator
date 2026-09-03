@@ -381,3 +381,26 @@ class TestVehicleTelemetryState:
             "time_to_full_charge_sec",
         ):
             assert key in status
+
+
+class TestRangeAtFullIsGuarded:
+    """range_km_at_full is shared with the simulation loop, like the rest."""
+
+    def test_setting_range_updates_derived_range(self):
+        ev = EVSimulator(range_km_at_full=400.0)
+        ev.soc = 50.0
+
+        ev.range_km_at_full = 500.0
+
+        assert ev.range_km_at_full == 500.0
+        assert ev.range_km == 250.0
+
+    def test_status_does_not_deadlock(self):
+        """get_status() holds the lock, so it must not re-enter the property."""
+        ev = EVSimulator(range_km_at_full=400.0)
+        assert ev.get_status()["range_km_at_full"] == 400.0
+
+    def test_negative_range_is_clamped(self):
+        ev = EVSimulator()
+        ev.range_km_at_full = -100.0
+        assert ev.range_km_at_full == 0.0

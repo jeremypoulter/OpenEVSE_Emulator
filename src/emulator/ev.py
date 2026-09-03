@@ -43,7 +43,7 @@ class EVSimulator:
         """
         self.battery_capacity_kwh = battery_capacity_kwh
         self.max_charge_rate_kw = max_charge_rate_kw
-        self.range_km_at_full = range_km_at_full
+        self._range_km_at_full = max(0.0, float(range_km_at_full))
 
         # Connection state
         self._connected = False
@@ -122,6 +122,17 @@ class EVSimulator:
             self._charge_limit_soc = max(0.0, min(100.0, value))
 
     @property
+    def range_km_at_full(self) -> float:
+        """Driving range in km at 100% SoC."""
+        with self._lock:
+            return self._range_km_at_full
+
+    @range_km_at_full.setter
+    def range_km_at_full(self, value: float):
+        with self._lock:
+            self._range_km_at_full = max(0.0, float(value))
+
+    @property
     def range_km(self) -> float:
         """Estimated driving range in km, derived from SoC."""
         with self._lock:
@@ -135,7 +146,7 @@ class EVSimulator:
 
     def _range_km(self) -> float:
         """Range in km. Caller must hold the lock."""
-        return (self._soc / 100.0) * self.range_km_at_full
+        return (self._soc / 100.0) * self._range_km_at_full
 
     def _time_to_full_charge_sec(self) -> int:
         """
@@ -328,7 +339,7 @@ class EVSimulator:
                 "max_charge_rate_kw": self.max_charge_rate_kw,
                 "actual_charge_rate_kw": round(self._actual_charge_rate_kw, 2),
                 "range_km": round(self._range_km(), 1),
-                "range_km_at_full": self.range_km_at_full,
+                "range_km_at_full": self._range_km_at_full,
                 "charge_limit_soc": round(self._charge_limit_soc, 1),
                 "time_to_full_charge_sec": self._time_to_full_charge_sec(),
                 "diode_check_failed": self._diode_check_failed,

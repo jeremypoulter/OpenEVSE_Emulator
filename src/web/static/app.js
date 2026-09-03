@@ -9,10 +9,18 @@ let currentState = {
     ev: {}
 };
 
-// The charge limit only ever changes from this panel, so it is seeded once from
-// the server (to pick up a configured value) and then left alone. Re-syncing it
-// on every poll would snap the slider back while it is being dragged.
-let chargeLimitSeeded = false;
+// Sliders are refreshed from the server only while the user is not holding
+// them. Re-syncing unconditionally snaps the control back mid-drag; never
+// re-syncing goes stale, which the charge limit can do because
+// /api/ev/charge_limit is a public endpoint another tab or script can call.
+function syncSlider(id, value) {
+    const slider = document.getElementById(id);
+    if (document.activeElement === slider) {
+        return;
+    }
+    slider.value = value;
+    document.getElementById(`${id}-value`).textContent = value;
+}
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -285,17 +293,12 @@ function updateDisplay() {
     document.getElementById('firmware-version').value = evse.firmware_version || '8.2.3';
     document.getElementById('protocol-version').textContent = evse.protocol_version || '-';
 
-    // EV sliders
-    document.getElementById('battery-soc').value = ev.soc;
-    document.getElementById('battery-soc-value').textContent = ev.soc;
+    // EV sliders. SoC does move on its own while charging, so it keeps
+    // refreshing - just not out from under a drag.
+    syncSlider('battery-soc', ev.soc);
 
     // Charging stops here, so a limit below the current SoC means no charge.
-    if (!chargeLimitSeeded) {
-        const chargeLimit = ev.charge_limit_soc ?? 100;
-        document.getElementById('charge-limit').value = chargeLimit;
-        document.getElementById('charge-limit-value').textContent = chargeLimit;
-        chargeLimitSeeded = true;
-    }
+    syncSlider('charge-limit', ev.charge_limit_soc ?? 100);
 
     // Sync direct mode UI
     const directModeToggle = document.getElementById('direct-mode-toggle');
