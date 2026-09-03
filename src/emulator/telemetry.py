@@ -78,6 +78,28 @@ def _require_number(value, name: str, minimum: Optional[float] = None) -> float:
     return number
 
 
+def _require_bool(value, name: str) -> bool:
+    """
+    Check a configured value is a boolean.
+
+    Rejecting is safer than coercing here: bool("false") is True, so a string
+    would silently invert the setting rather than fail.
+
+    Args:
+        value: Configured value
+        name: Setting name, for the error message
+
+    Returns:
+        The value
+
+    Raises:
+        ValueError: If the value is not a bool
+    """
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be true or false, got {value!r}")
+    return value
+
+
 def _require_text(value, name: str) -> str:
     """
     Check a configured value is a string.
@@ -324,7 +346,7 @@ class MqttTelemetryReporter:
         self.port = int(_require_number(port, "reporting.mqtt.port", minimum=0))
         self.username = _optional_text(username, "reporting.mqtt.username")
         self.password = _optional_text(password, "reporting.mqtt.password")
-        self.retain = bool(retain)
+        self.retain = _require_bool(retain, "reporting.mqtt.retain")
         prefix = _require_text(topic_prefix, "reporting.mqtt.topic_prefix").rstrip("/")
         self.topics = {
             field: overrides.get(field, f"{prefix}/{DEFAULT_MQTT_SUFFIXES[field]}")
@@ -557,7 +579,7 @@ def build_reporter(ev, config: dict) -> TelemetryReporter:
     mqtt_config = config.get("mqtt", {})
 
     http = None
-    if http_config.get("enabled"):
+    if _require_bool(http_config.get("enabled", False), "reporting.http.enabled"):
         http = HttpTelemetryReporter(
             url=http_config.get("url"),
             username=http_config.get("username"),
@@ -566,7 +588,7 @@ def build_reporter(ev, config: dict) -> TelemetryReporter:
         )
 
     mqtt = None
-    if mqtt_config.get("enabled"):
+    if _require_bool(mqtt_config.get("enabled", False), "reporting.mqtt.enabled"):
         mqtt = MqttTelemetryReporter(
             host=mqtt_config.get("host"),
             port=mqtt_config.get("port", DEFAULT_MQTT_PORT),

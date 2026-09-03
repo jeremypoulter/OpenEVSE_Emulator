@@ -51,7 +51,7 @@ class EVSimulator:
 
         # Battery state
         self._soc = 50.0  # State of charge percentage (0-100)
-        self._charge_limit_soc = max(0.0, min(100.0, charge_limit_soc))
+        self._charge_limit_soc = max(0.0, min(100.0, float(charge_limit_soc)))
 
         # Charging state
         self._actual_charge_rate_kw = 0.0
@@ -119,7 +119,7 @@ class EVSimulator:
     @charge_limit_soc.setter
     def charge_limit_soc(self, value: float):
         with self._lock:
-            self._charge_limit_soc = max(0.0, min(100.0, value))
+            self._charge_limit_soc = max(0.0, min(100.0, float(value)))
 
     @property
     def range_km_at_full(self) -> float:

@@ -404,3 +404,18 @@ class TestRangeAtFullIsGuarded:
         ev = EVSimulator()
         ev.range_km_at_full = -100.0
         assert ev.range_km_at_full == 0.0
+
+
+class TestNumericCoercion:
+    """A hand-written config.json can carry numbers as strings."""
+
+    def test_charge_limit_accepts_a_numeric_string(self):
+        assert EVSimulator(charge_limit_soc="80").charge_limit_soc == 80.0
+
+    def test_charge_limit_setter_accepts_a_numeric_string(self):
+        ev = EVSimulator()
+        ev.charge_limit_soc = "65"
+        assert ev.charge_limit_soc == 65.0
+
+    def test_range_accepts_a_numeric_string(self):
+        assert EVSimulator(range_km_at_full="500").range_km_at_full == 500.0

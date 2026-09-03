@@ -447,3 +447,31 @@ class TestStartIsIdempotent:
         assert reporter.start() is True
         assert reporter.thread is not None
         reporter.stop()
+
+
+class TestBooleanValidation:
+    """
+    Booleans are rejected rather than coerced.
+
+    bool("false") is True, so coercing would silently invert the setting -
+    turning reporting on for someone who wrote it off, or dropping the retain
+    flag they asked for.
+    """
+
+    @pytest.mark.parametrize("value", ["false", "true", "no", 0, 1, None])
+    def test_retain_rejects_non_booleans(self, value):
+        with pytest.raises(ValueError) as exc_info:
+            MqttTelemetryReporter(host="broker", retain=value)
+        assert "reporting.mqtt.retain" in str(exc_info.value)
+
+    @pytest.mark.parametrize("section", ["http", "mqtt"])
+    def test_enabled_rejects_non_booleans(self, section):
+        with pytest.raises(ValueError) as exc_info:
+            build_reporter(EVSimulator(), {section: {"enabled": "false"}})
+        assert f"reporting.{section}.enabled" in str(exc_info.value)
+
+    def test_real_booleans_are_accepted(self):
+        assert MqttTelemetryReporter(host="broker", retain=False).retain is False
+        assert (
+            build_reporter(EVSimulator(), {"http": {"enabled": False}}).enabled is False
+        )
