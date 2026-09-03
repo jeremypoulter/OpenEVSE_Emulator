@@ -1,5 +1,7 @@
 """Tests for vehicle telemetry reporting to an OpenEVSE."""
 
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -583,3 +585,81 @@ class TestMalformedSections:
     def test_absent_and_null_sections_mean_not_configured(self, config):
         """A null section in config.json reads as 'not set', not as an error."""
         assert build_reporter(EVSimulator(), config).enabled is False
+
+
+class TestConcurrency:
+    """
+    publish_once() runs from the reporting thread and from
+    POST /api/reporting/publish, so the transports are shared across threads.
+    """
+
+    def test_concurrent_connect_creates_one_client(self):
+        """
+        Both callers finding _client None would each connect and loop_start(),
+        orphaning a client with its network thread still running.
+        """
+        reporter = MqttTelemetryReporter(host="broker")
+        created = []
+
+        def fake_client(**kwargs):
+            client = MagicMock()
+            created.append(client)
+            return client
+
+        with patch("paho.mqtt.client.Client", side_effect=fake_client):
+            threads = [threading.Thread(target=reporter._connect) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert len(created) == 1
+
+    def test_publishes_do_not_interleave(self):
+        """A manual push must not land in the middle of a scheduled one."""
+        reporter = TelemetryReporter(EVSimulator(), http=MagicMock())
+        overlaps = []
+        active = []
+
+        def record(_telemetry):
+            active.append(1)
+            overlaps.append(len(active))
+            time.sleep(0.02)
+            active.pop()
+            return True
+
+        reporter.http.send.side_effect = record
+
+        threads = [threading.Thread(target=reporter.publish_once) for _ in range(5)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert max(overlaps) == 1
+
+    def test_stop_does_not_hang_on_a_stuck_publish(self):
+        """
+        Teardown waits for an in-flight push, but only briefly. Waiting on the
+        lock unconditionally would trade a racy close for a stop() that never
+        returns, which is the worse failure.
+        """
+        http = MagicMock()
+        started = threading.Event()
+
+        def slow(_telemetry):
+            started.set()
+            time.sleep(6)
+            return True
+
+        http.send.side_effect = slow
+        reporter = TelemetryReporter(EVSimulator(), interval_sec=0.01, http=http)
+
+        reporter.start()
+        assert started.wait(timeout=2)
+
+        began = time.time()
+        reporter.stop()
+
+        # 2s join plus a 2s bounded wait for the publish lock.
+        assert time.time() - began < 5.5

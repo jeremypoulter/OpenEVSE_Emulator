@@ -183,15 +183,16 @@ def status_url(url: str) -> str:
     Accepts either a base URL ("http://openevse.local") or one that already
     names the endpoint ("http://openevse.local/status"), so a user who copies
     the full endpoint out of the docs is not silently posting to /status/status.
+    A bare host ("openevse.local") is accepted too and assumed to be http.
 
     Args:
-        url: Base URL or full status endpoint URL
+        url: Base URL, bare host, or full status endpoint URL
 
     Returns:
         The full status endpoint URL
 
     Raises:
-        ValueError: If the URL is not a string, or has no scheme or host
+        ValueError: If the URL is not a string, or names no host
     """
     _require_text(url, "reporting.http.url")
 
@@ -371,26 +372,31 @@ class MqttTelemetryReporter:
 
         self.last_error: Optional[str] = None
         self._client = None
+        # Creation and teardown must not interleave: two callers both finding
+        # _client None would each connect and loop_start(), orphaning one
+        # client with its network thread still running.
+        self._client_lock = threading.Lock()
 
     def _connect(self):
         """Create and start the client, reusing a live one."""
-        if self._client is not None:
-            return self._client
+        with self._client_lock:
+            if self._client is not None:
+                return self._client
 
-        # Imported lazily so the emulator still runs with reporting disabled
-        # when the optional dependency is missing.
-        import paho.mqtt.client as mqtt
+            # Imported lazily so the emulator still runs with reporting
+            # disabled when the optional dependency is missing.
+            import paho.mqtt.client as mqtt
 
-        client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
-        if self.username or self.password:
-            client.username_pw_set(self.username, self.password)
+            client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+            if self.username or self.password:
+                client.username_pw_set(self.username, self.password)
 
-        client.connect(self.host, self.port)
-        # Runs the network loop on its own thread, which also gives us
-        # automatic reconnection between intervals.
-        client.loop_start()
-        self._client = client
-        return client
+            client.connect(self.host, self.port)
+            # Runs the network loop on its own thread, which also gives us
+            # automatic reconnection between intervals.
+            client.loop_start()
+            self._client = client
+            return client
 
     def send(self, telemetry: dict) -> bool:
         """
@@ -432,16 +438,17 @@ class MqttTelemetryReporter:
 
     def close(self):
         """Stop the network loop and drop the client."""
-        if self._client is None:
-            return
+        with self._client_lock:
+            if self._client is None:
+                return
 
-        try:
-            self._client.loop_stop()
-            self._client.disconnect()
-        except Exception as e:
-            print(f"Warning: Could not close MQTT client: {e}")
-        finally:
-            self._client = None
+            try:
+                self._client.loop_stop()
+                self._client.disconnect()
+            except Exception as e:
+                print(f"Warning: Could not close MQTT client: {e}")
+            finally:
+                self._client = None
 
 
 class TelemetryReporter:
@@ -477,6 +484,10 @@ class TelemetryReporter:
         self.thread: Optional[threading.Thread] = None
         self.last_telemetry: Optional[dict] = None
         self._stop_event = threading.Event()
+        # publish_once() runs from the reporting thread and from
+        # POST /api/reporting/publish, so pushes are serialised rather than
+        # interleaved onto the same transports.
+        self._publish_lock = threading.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -530,8 +541,17 @@ class TelemetryReporter:
             if not self.thread.is_alive():
                 self.thread = None
 
-        if self.mqtt:
-            self.mqtt.close()
+        # Let an in-flight push finish before tearing the transports down, but
+        # never block shutdown on one that is stuck: an HTTP push can outlast
+        # this, and waiting on the lock unconditionally would trade a racy
+        # close for a stop() that never returns.
+        acquired = self._publish_lock.acquire(timeout=2.0)
+        try:
+            if self.mqtt:
+                self.mqtt.close()
+        finally:
+            if acquired:
+                self._publish_lock.release()
 
     def publish_once(self) -> dict:
         """
@@ -540,14 +560,15 @@ class TelemetryReporter:
         Returns:
             Dict with the telemetry sent and each transport's result
         """
-        telemetry = build_telemetry(self.ev)
-        self.last_telemetry = telemetry
+        with self._publish_lock:
+            telemetry = build_telemetry(self.ev)
+            self.last_telemetry = telemetry
 
-        results = {}
-        if self.http:
-            results["http"] = self.http.send(telemetry)
-        if self.mqtt:
-            results["mqtt"] = self.mqtt.send(telemetry)
+            results = {}
+            if self.http:
+                results["http"] = self.http.send(telemetry)
+            if self.mqtt:
+                results["mqtt"] = self.mqtt.send(telemetry)
 
         return {"telemetry": telemetry, "results": results}
 
