@@ -182,6 +182,8 @@ ENV_OVERRIDE_PATHS = {
     "REPORTING_MQTT_USERNAME": "reporting.mqtt.username",
     "REPORTING_MQTT_PASSWORD": "reporting.mqtt.password",
     "REPORTING_MQTT_TOPIC_PREFIX": "reporting.mqtt.topic_prefix",
+    "REPORTING_HTTP_TIMEOUT": "reporting.http.timeout_sec",
+    "REPORTING_MQTT_RETAIN": "reporting.mqtt.retain",
 }
 
 
@@ -222,6 +224,8 @@ ENV_OVERRIDE_TYPES = {
     "reporting.http.enabled": _parse_bool,
     "reporting.mqtt.enabled": _parse_bool,
     "reporting.mqtt.port": int,
+    "reporting.http.timeout_sec": float,
+    "reporting.mqtt.retain": _parse_bool,
 }
 
 
@@ -300,6 +304,8 @@ CLI_OVERRIDE_PATHS = {
     "reporting_mqtt_username": "reporting.mqtt.username",
     "reporting_mqtt_password": "reporting.mqtt.password",
     "reporting_mqtt_topic_prefix": "reporting.mqtt.topic_prefix",
+    "reporting_http_timeout": "reporting.http.timeout_sec",
+    "reporting_mqtt_retain": "reporting.mqtt.retain",
     "web_host": "web.host",
     "web_port": "web.port",
     "simulation_update_interval_ms": "simulation.update_interval_ms",

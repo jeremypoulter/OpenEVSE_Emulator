@@ -643,23 +643,51 @@ class TestConcurrency:
         Teardown waits for an in-flight push, but only briefly. Waiting on the
         lock unconditionally would trade a racy close for a stop() that never
         returns, which is the worse failure.
+
+        The blocked call is released by an Event rather than a fixed sleep, so
+        the worker thread can be joined and confirmed gone before the test
+        ends, instead of leaking a live thread into the rest of the suite.
         """
         http = MagicMock()
         started = threading.Event()
+        release = threading.Event()
 
-        def slow(_telemetry):
+        def blocked(_telemetry):
             started.set()
-            time.sleep(6)
+            release.wait()
             return True
 
-        http.send.side_effect = slow
+        http.send.side_effect = blocked
         reporter = TelemetryReporter(EVSimulator(), interval_sec=0.01, http=http)
 
         reporter.start()
         assert started.wait(timeout=2)
+        worker = reporter.thread
 
         began = time.time()
         reporter.stop()
+        elapsed = time.time() - began
+
+        release.set()
+        worker.join(timeout=2)
 
         # 2s join plus a 2s bounded wait for the publish lock.
-        assert time.time() - began < 5.5
+        assert elapsed < 5.5
+        assert not worker.is_alive()
+
+
+class TestBooleanNotAcceptedAsNumber:
+    """bool is a subclass of int, so float(True) == 1.0 would pass silently."""
+
+    def test_interval_sec_rejects_bool(self):
+        with pytest.raises(ValueError) as exc_info:
+            TelemetryReporter(EVSimulator(), interval_sec=True)
+        assert "reporting.interval_sec" in str(exc_info.value)
+
+    def test_http_timeout_rejects_bool(self):
+        with pytest.raises(ValueError):
+            HttpTelemetryReporter(url="http://evse", timeout_sec=False)
+
+    def test_mqtt_port_rejects_bool(self):
+        with pytest.raises(ValueError):
+            MqttTelemetryReporter(host="broker", port=True)

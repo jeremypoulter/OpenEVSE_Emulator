@@ -307,8 +307,11 @@ one its `vehicle_data_src` selects.
 }
 ```
 
-Every setting also has an environment variable (`REPORTING_HTTP_URL`,
-`REPORTING_MQTT_HOST`, ...) for Docker deployments.
+Every scalar setting also has an environment variable (`REPORTING_HTTP_URL`,
+`REPORTING_MQTT_HOST`, `REPORTING_HTTP_TIMEOUT`, `REPORTING_MQTT_RETAIN`, ...)
+for Docker deployments. The one exception is `mqtt.topics`, since a per-field
+topic map does not reduce to a single variable; set it in `config.json` or
+over the runtime API instead.
 
 ### Configuring at runtime
 

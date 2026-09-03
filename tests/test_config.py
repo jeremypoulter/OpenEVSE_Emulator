@@ -429,3 +429,24 @@ class TestReportingConfig:
         assert config["reporting"]["http"]["enabled"] is True
         assert config["reporting"]["http"]["url"] == "http://evse"
         assert config["reporting"]["interval_sec"] == 5.0
+
+    def test_env_overrides_http_timeout(self, monkeypatch):
+        monkeypatch.setenv("REPORTING_HTTP_TIMEOUT", "10")
+        config = default_config()
+        apply_env_overrides(config, verbose=False)
+        assert config["reporting"]["http"]["timeout_sec"] == 10.0
+
+    def test_env_overrides_mqtt_retain(self, monkeypatch):
+        monkeypatch.setenv("REPORTING_MQTT_RETAIN", "false")
+        config = default_config()
+        apply_env_overrides(config, verbose=False)
+        assert config["reporting"]["mqtt"]["retain"] is False
+
+    def test_cli_overrides_http_timeout_and_mqtt_retain(self):
+        config = default_config()
+        apply_cli_overrides(
+            config,
+            {"reporting_http_timeout": 20.0, "reporting_mqtt_retain": False},
+        )
+        assert config["reporting"]["http"]["timeout_sec"] == 20.0
+        assert config["reporting"]["mqtt"]["retain"] is False

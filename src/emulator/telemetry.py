@@ -67,6 +67,11 @@ def _require_number(value, name: str, minimum: Optional[float] = None) -> float:
     Raises:
         ValueError: If the value is not numeric, or not above minimum
     """
+    # bool is a subclass of int, so float(True) == 1.0 would otherwise pass
+    # silently - interval_sec: true becoming a 1-second interval, say.
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a number, got {value!r}")
+
     try:
         number = float(value)
     except (TypeError, ValueError):

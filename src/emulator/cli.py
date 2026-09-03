@@ -244,6 +244,20 @@ Examples:
         default=argparse.SUPPRESS,
         help="MQTT topic prefix for telemetry (default: emulator/vehicle)",
     )
+    parser.add_argument(
+        "--reporting-http-timeout",
+        dest="reporting_http_timeout",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="HTTP request timeout in seconds for telemetry push (default: 5)",
+    )
+    parser.add_argument(
+        "--reporting-mqtt-retain",
+        dest="reporting_mqtt_retain",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Publish telemetry as retained MQTT messages (default: on)",
+    )
 
     # Web UI options
     parser.add_argument(
