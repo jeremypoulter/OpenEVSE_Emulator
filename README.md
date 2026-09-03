@@ -175,6 +175,76 @@ ws.onmessage = (event) => {
 };
 ```
 
+## Engine Mode: Running the Real Firmware
+
+By default the emulator implements the EVSE itself. Engine mode swaps the
+Python state machine and RAPI handler for the **actual OpenEVSE safety
+firmware**, built natively from the
+[open_evse](https://github.com/OpenEVSE/open_evse) repository, and keeps
+everything else: the EV simulator, the virtual serial port, the web UI and
+telemetry.
+
+Clients then talk to the same C++ that ships on the board, over the same
+serial port as before.
+
+### Building the firmware
+
+```bash
+cd ../open_evse
+pio run -e native_oev6      # OpenEVSE v3 / OEV6
+pio run -e native_nxt       # OpenEVSE NXT (SAMD)
+```
+
+### Running
+
+```bash
+python src/main.py --engine-binary ../open_evse/.pio/build/native_oev6/program
+```
+
+The emulator reports which engine it started:
+
+```
+Starting firmware engine...
+Engine: ../open_evse/.pio/build/native_oev6/program
+        board=oev6 version=9.3.0.native
+```
+
+Or via `config.json`:
+
+```json
+"engine": {
+  "enabled": true,
+  "binary": "../open_evse/.pio/build/native_oev6/program",
+  "board": "",
+  "eeprom": "openevse_eeprom.bin",
+  "wait_ms": 10000
+}
+```
+
+### What changes
+
+| | Default | Engine mode |
+|---|---|---|
+| EVSE state machine | `evse.py` | the firmware |
+| RAPI protocol | `rapi.py` | the firmware |
+| Vehicle | `ev.py` | `ev.py` |
+| Serial port, web UI, telemetry | unchanged | unchanged |
+| Checksum forms accepted | XOR (`^`) | XOR (`^`) and additive (`*`) |
+| Startup | instant | ~1s of power-on self tests |
+
+The emulator presents the board the firmware is wired to: the pilot as a
+square wave, the ammeter CT, the AC-sense lines, and a GFI detector that
+follows the test coil so the firmware's power-on self test passes. It does
+not decide what any of those *mean* -- that is the firmware's job, and the
+reason to run it.
+
+### When to use which
+
+Use the default Python EVSE for speed and convenience: it starts instantly
+and needs no toolchain. Use engine mode when a test needs the firmware's real
+behaviour -- fault handling, self tests, exact RAPI semantics -- or when you
+are developing the safety firmware itself and want it under a debugger.
+
 ## Configuration
 
 Edit `config.json` to customize emulator settings:
