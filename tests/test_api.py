@@ -920,6 +920,27 @@ class TestReportingConfigEndpoint:
 
         assert response.status_code == 200
 
+    def test_empty_password_is_masked_not_echoed(self, evse, ev):
+        """
+        Masking was gated on truthiness, so an empty password came back as "",
+        which contradicts the documented guarantee and reveals it is blank.
+        """
+        api = self._api(evse, ev, {"http": {"enabled": False, "password": ""}})
+
+        with api.app.test_client() as client:
+            data = json.loads(client.get("/api/reporting/config").data)
+
+        assert data["http"]["password"] == "***"
+
+    def test_null_password_stays_null(self, evse, ev):
+        """Masking must not invent a secret where none is set."""
+        api = self._api(evse, ev, {"http": {"enabled": False, "password": None}})
+
+        with api.app.test_client() as client:
+            data = json.loads(client.get("/api/reporting/config").data)
+
+        assert data["http"]["password"] is None
+
     def test_non_object_body_is_rejected(self, evse, ev):
         api = self._api(evse, ev)
         with api.app.test_client() as client:
@@ -943,6 +964,7 @@ class TestReportingConfigEndpoint:
 
         assert "hunter2" not in posted.get_data(as_text=True)
         assert "hunter2" not in fetched.get_data(as_text=True)
+        assert json.loads(fetched.data)["http"]["password"] == "***"
         # The real password is still in use, just not echoed.
         assert api.reporter.http.auth == ("", "hunter2")
         api.reporter.stop()

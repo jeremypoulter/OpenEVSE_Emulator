@@ -101,7 +101,7 @@ def _mask_secrets(config: dict) -> dict:
     for key, value in config.items():
         if isinstance(value, dict):
             masked[key] = _mask_secrets(value)
-        elif key in SECRET_KEYS and value:
+        elif key in SECRET_KEYS and value is not None:
             masked[key] = MASKED
         else:
             masked[key] = value

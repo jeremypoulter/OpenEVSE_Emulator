@@ -552,3 +552,34 @@ class TestMqttPublishResult:
             assert reporter.send({"battery_level": 1.0}) is True
 
         assert reporter.last_error is None
+
+
+class TestMalformedSections:
+    """Malformed config must raise ValueError, which callers already handle."""
+
+    @pytest.mark.parametrize("topics", [[], (), "", ["battery_level"], 0])
+    def test_falsy_non_dict_topics_are_rejected(self, topics):
+        """
+        `topics or {}` let every falsy value through, past the type check
+        immediately below it, so an empty list quietly became no overrides.
+        """
+        with pytest.raises(ValueError) as exc_info:
+            MqttTelemetryReporter(host="broker", topics=topics)
+        assert "reporting.mqtt.topics" in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "config",
+        [{"http": "yes"}, {"mqtt": 5}, {"http": []}, "scalar", 7],
+    )
+    def test_non_mapping_sections_raise_value_error(self, config):
+        """
+        AttributeError here would escape startup's ValueError handler and
+        traceback instead of disabling reporting and carrying on.
+        """
+        with pytest.raises(ValueError):
+            build_reporter(EVSimulator(), config)
+
+    @pytest.mark.parametrize("config", [{}, {"http": None}, {"mqtt": None}])
+    def test_absent_and_null_sections_mean_not_configured(self, config):
+        """A null section in config.json reads as 'not set', not as an error."""
+        assert build_reporter(EVSimulator(), config).enabled is False

@@ -100,6 +100,27 @@ def _require_bool(value, name: str) -> bool:
     return value
 
 
+def _require_mapping(value, name: str) -> dict:
+    """
+    Check a configured value is an object, treating null as absent.
+
+    Args:
+        value: Configured value
+        name: Setting name, for the error message
+
+    Returns:
+        The value, or an empty dict when it is None
+
+    Raises:
+        ValueError: If the value is neither a mapping nor None
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be an object, got {type(value).__name__}")
+    return value
+
+
 def _require_text(value, name: str) -> str:
     """
     Check a configured value is a string.
@@ -326,12 +347,7 @@ class MqttTelemetryReporter:
         if not host:
             raise ValueError("MQTT reporting requires a broker host")
 
-        overrides = topics or {}
-        if not isinstance(overrides, dict):
-            raise ValueError(
-                f"reporting.mqtt.topics must be an object, got "
-                f"{type(topics).__name__}"
-            )
+        overrides = _require_mapping(topics, "reporting.mqtt.topics")
 
         unknown = set(overrides) - set(TELEMETRY_FIELDS)
         if unknown:
@@ -593,8 +609,9 @@ def build_reporter(ev, config: dict) -> TelemetryReporter:
     Raises:
         ValueError: If an enabled transport is misconfigured
     """
-    http_config = config.get("http", {})
-    mqtt_config = config.get("mqtt", {})
+    config = _require_mapping(config, "reporting")
+    http_config = _require_mapping(config.get("http"), "reporting.http")
+    mqtt_config = _require_mapping(config.get("mqtt"), "reporting.mqtt")
 
     http = None
     if _require_bool(http_config.get("enabled", False), "reporting.http.enabled"):
