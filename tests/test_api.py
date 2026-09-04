@@ -981,6 +981,44 @@ class TestReportingConfigEndpoint:
         with api.app.test_client() as client:
             assert client.post("/api/reporting/config", json=[]).status_code == 400
 
+    def test_posting_back_a_masked_password_leaves_it_unchanged(self, evse, ev):
+        """
+        The natural read-modify-write pattern - GET the config, change one
+        field, POST the rest back - must not overwrite the real password
+        with the literal string "***" it was masked as.
+        """
+        api = self._api(
+            evse,
+            ev,
+            {"http": {"enabled": True, "url": "http://evse", "password": "secret"}},
+        )
+
+        with api.app.test_client() as client:
+            fetched = json.loads(client.get("/api/reporting/config").data)
+            assert fetched["http"]["password"] == "***"
+
+            fetched["interval_sec"] = 45
+            response = client.post("/api/reporting/config", json=fetched)
+
+        assert response.status_code == 200
+        assert api.reporting_config["http"]["password"] == "secret"
+        assert api.reporting_config["interval_sec"] == 45
+        api.reporter.stop()
+
+    def test_an_explicit_password_change_still_applies(self, evse, ev):
+        """Stripping the mask must not block a genuine password update."""
+        api = self._api(
+            evse,
+            ev,
+            {"http": {"enabled": True, "url": "http://evse", "password": "old"}},
+        )
+
+        with api.app.test_client() as client:
+            client.post("/api/reporting/config", json={"http": {"password": "new"}})
+
+        assert api.reporting_config["http"]["password"] == "new"
+        api.reporter.stop()
+
     def test_passwords_are_never_echoed_back(self, evse, ev):
         api = self._api(evse, ev)
 

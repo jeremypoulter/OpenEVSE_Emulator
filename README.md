@@ -334,7 +334,10 @@ with 400 and the existing reporter keeps running untouched.
 
 This affects the running emulator only - it does not write `config.json`.
 `GET /api/reporting/config` returns the settings in effect, with passwords
-masked.
+masked as `"***"`. Posting that mask back is a no-op for the password field,
+so reading the config, changing one setting, and posting the rest back
+unchanged does not overwrite the real password - only an actual new value
+replaces it.
 
 MQTT can be reconfigured the same way, though it rarely needs to be: the broker
 address is generally known up front, and it is the OpenEVSE that connects to it.

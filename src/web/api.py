@@ -84,6 +84,34 @@ SECRET_KEYS = ("password",)
 MASKED = "***"
 
 
+def _strip_masked_secrets(overrides: dict) -> dict:
+    """
+    Drop masked secret values from a partial config before it is merged.
+
+    GET /api/reporting/config masks passwords as MASKED, so the natural
+    read-modify-write pattern - GET the config, change one field, POST the
+    rest back unchanged - would otherwise overwrite the real password with
+    the literal string "***". Dropping the key here instead means "***"
+    means "leave this one alone", matching what a caller doing that actually
+    intends.
+
+    Args:
+        overrides: Partial config from a request body
+
+    Returns:
+        A copy of overrides with masked secret keys removed
+    """
+    stripped = {}
+    for key, value in overrides.items():
+        if isinstance(value, dict):
+            stripped[key] = _strip_masked_secrets(value)
+        elif key in SECRET_KEYS and value == MASKED:
+            continue
+        else:
+            stripped[key] = value
+    return stripped
+
+
 def _mask_secrets(config: dict) -> dict:
     """
     Copy a config with secret values replaced.
@@ -726,6 +754,8 @@ ws.onmessage = (event) => {
             overrides = request.get_json(silent=True)
             if not isinstance(overrides, dict):
                 return jsonify({"error": "A JSON object is required"}), 400
+
+            overrides = _strip_masked_secrets(overrides)
 
             error = _validate_reporting_overrides(overrides)
             if error:

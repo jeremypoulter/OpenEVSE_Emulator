@@ -415,6 +415,11 @@ paths:
         invalid the request fails and the existing reporter keeps running.
         This applies to the running emulator only; it does not write
         config.json.
+
+
+        Password fields accept the masked value "***" returned by GET as a
+        no-op, so reading the config, changing one field, and posting the
+        rest back does not overwrite a real password with the literal mask.
       operationId: setReportingConfig
       requestBody:
         required: true
