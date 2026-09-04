@@ -264,11 +264,14 @@ class HttpTelemetryReporter:
         Returns:
             True if the push was accepted by the firmware
         """
-        # Imported lazily so the emulator still runs with reporting disabled
-        # when the optional dependency is missing.
-        import requests
-
         try:
+            # Imported lazily, and inside the try, so a missing optional
+            # dependency is reported as a transport failure like any other -
+            # not an ImportError escaping uncaught from POST
+            # /api/reporting/publish, which calls this with nothing else
+            # catching it.
+            import requests
+
             response = requests.post(
                 self.url, json=telemetry, auth=self.auth, timeout=self.timeout_sec
             )
@@ -413,9 +416,14 @@ class MqttTelemetryReporter:
         Returns:
             True if every field was published
         """
-        import paho.mqtt.client as mqtt
-
         try:
+            # Imported lazily, and inside the try, so a missing optional
+            # dependency is reported as a transport failure like any other -
+            # not an ImportError escaping uncaught from POST
+            # /api/reporting/publish, which calls this with nothing else
+            # catching it.
+            import paho.mqtt.client as mqtt
+
             client = self._connect()
             for field, value in telemetry.items():
                 info = client.publish(

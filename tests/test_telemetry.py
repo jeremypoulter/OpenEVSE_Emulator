@@ -1,5 +1,6 @@
 """Tests for vehicle telemetry reporting to an OpenEVSE."""
 
+import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -691,3 +692,30 @@ class TestBooleanNotAcceptedAsNumber:
     def test_mqtt_port_rejects_bool(self):
         with pytest.raises(ValueError):
             MqttTelemetryReporter(host="broker", port=True)
+
+
+class TestMissingOptionalDependency:
+    """
+    requests and paho-mqtt are imported lazily inside send(), so the emulator
+    can start without them if reporting is never used. That promise only
+    holds if a missing import is reported like any other transport failure -
+    POST /api/reporting/publish calls send() with nothing else catching it,
+    so an import left outside the try would surface as a 500 instead of the
+    documented graceful degradation.
+    """
+
+    def test_http_send_survives_a_missing_requests(self):
+        reporter = HttpTelemetryReporter(url="http://evse")
+
+        with patch.dict(sys.modules, {"requests": None}):
+            assert reporter.send({"battery_level": 1.0}) is False
+
+        assert reporter.last_error is not None
+
+    def test_mqtt_send_survives_a_missing_paho(self):
+        reporter = MqttTelemetryReporter(host="broker")
+
+        with patch.dict(sys.modules, {"paho.mqtt.client": None}):
+            assert reporter.send({"battery_level": 1.0}) is False
+
+        assert reporter.last_error is not None
