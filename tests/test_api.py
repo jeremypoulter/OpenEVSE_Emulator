@@ -760,6 +760,25 @@ class TestVehicleTelemetryEndpoints:
         assert response.status_code == 200
         assert json.loads(response.data)["enabled"] is False
 
+    def test_status_shape_matches_a_configured_reporters_disabled_state(self, evse, ev):
+        """
+        With no reporter wired up, the response must carry the same keys as a
+        real reporter with nothing enabled - not a thinner, hand-rolled shape
+        a client would need to special-case.
+        """
+        from src.emulator.telemetry import TelemetryReporter
+
+        without = WebAPI(evse, ev)
+        without.app.config["TESTING"] = True
+        with_disabled = WebAPI(evse, ev, reporter=TelemetryReporter(ev))
+        with_disabled.app.config["TESTING"] = True
+
+        with without.app.test_client() as a, with_disabled.app.test_client() as b:
+            data_a = json.loads(a.get("/api/reporting/status").data)
+            data_b = json.loads(b.get("/api/reporting/status").data)
+
+        assert set(data_a) == set(data_b)
+
     def test_publish_without_a_reporter_is_a_conflict(self, api_client):
         assert api_client.post("/api/reporting/publish").status_code == 409
 

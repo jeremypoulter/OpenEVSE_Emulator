@@ -14,12 +14,12 @@ from typing import TYPE_CHECKING, Optional
 try:
     from emulator.evse import ErrorFlags
     from emulator.config import merge_config
-    from emulator.telemetry import build_reporter
+    from emulator.telemetry import build_reporter, TelemetryReporter
 except ImportError:
     # When imported as src.web.api from tests
     from ..emulator.evse import ErrorFlags
     from ..emulator.config import merge_config
-    from ..emulator.telemetry import build_reporter
+    from ..emulator.telemetry import build_reporter, TelemetryReporter
 
 if TYPE_CHECKING:
     try:
@@ -746,9 +746,16 @@ ws.onmessage = (event) => {
 
         @self.app.route("/api/reporting/status", methods=["GET"])
         def get_reporting_status():
-            if self.reporter is None:
-                return jsonify({"enabled": False, "running": False})
-            return jsonify(self.reporter.get_status())
+            # No hand-rolled shape here: a disabled TelemetryReporter already
+            # answers get_status() with every key at its inert default, so
+            # constructing one guarantees this can never drift from the real
+            # shape the way a separately maintained dict could.
+            reporter = (
+                self.reporter
+                if self.reporter is not None
+                else TelemetryReporter(self.ev)
+            )
+            return jsonify(reporter.get_status())
 
         @self.app.route("/api/reporting/publish", methods=["POST"])
         def publish_reporting():

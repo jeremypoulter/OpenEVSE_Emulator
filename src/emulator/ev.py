@@ -41,7 +41,10 @@ def _as_float(value: float) -> float:
         raise ValueError(f"expected a number, got {value!r}")
     try:
         return float(value)
-    except TypeError:
+    except (TypeError, ValueError):
+        # float() already raises ValueError for a bad string, but with its own
+        # message ("could not convert string to float: ..."); normalizing it
+        # here keeps every rejection in this function reading the same way.
         raise ValueError(f"expected a number, got {value!r}") from None
 
 

@@ -453,3 +453,13 @@ class TestBoolRejectedAsNumber:
         ev = EVSimulator(charge_limit_soc="80", range_km_at_full="500")
         assert ev.charge_limit_soc == 80.0
         assert ev.range_km_at_full == 500.0
+
+    def test_non_numeric_string_gives_a_consistent_message(self):
+        """
+        float() already raises ValueError for a bad string, with its own
+        message. Without normalizing it too, this one rejection path would
+        read differently from every other one in the same function.
+        """
+        with pytest.raises(ValueError) as exc_info:
+            EVSimulator(charge_limit_soc="not-a-number")
+        assert "expected a number" in str(exc_info.value)
