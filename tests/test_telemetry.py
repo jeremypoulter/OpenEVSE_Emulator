@@ -719,3 +719,61 @@ class TestMissingOptionalDependency:
             assert reporter.send({"battery_level": 1.0}) is False
 
         assert reporter.last_error is not None
+
+
+class TestStopDoesNotRaceAnActivePublish:
+    """
+    stop() must never close the MQTT client while a publish is genuinely
+    still using it - a real bug: acquiring the publish lock with a timeout
+    controlled only whether stop() released the lock afterward, not whether
+    close() ran at all, so close() ran identically whether or not a publish
+    was still in flight.
+    """
+
+    def test_closes_immediately_when_nothing_is_publishing(self):
+        mqtt = MagicMock()
+        reporter = TelemetryReporter(EVSimulator(), mqtt=mqtt)
+
+        reporter.stop()
+
+        assert mqtt.close.called
+
+    def test_does_not_close_while_the_lock_is_held(self):
+        """Simulates an in-flight publish by holding the lock directly."""
+        mqtt = MagicMock()
+        reporter = TelemetryReporter(EVSimulator(), mqtt=mqtt)
+        reporter._publish_lock.acquire()
+        try:
+            reporter.stop()
+            assert not mqtt.close.called
+        finally:
+            reporter._publish_lock.release()
+
+    def test_still_closes_once_the_publish_finishes(self):
+        """The close must not be lost, only deferred."""
+        mqtt = MagicMock()
+        reporter = TelemetryReporter(EVSimulator(), mqtt=mqtt)
+        reporter._publish_lock.acquire()
+
+        reporter.stop()
+        assert not mqtt.close.called
+
+        reporter._publish_lock.release()
+        for _ in range(50):
+            if mqtt.close.called:
+                break
+            time.sleep(0.02)
+
+        assert mqtt.close.called
+
+    def test_stop_stays_responsive_when_contended(self):
+        """stop() must return promptly even while a publish holds the lock."""
+        mqtt = MagicMock()
+        reporter = TelemetryReporter(EVSimulator(), mqtt=mqtt)
+        reporter._publish_lock.acquire()
+        try:
+            began = time.time()
+            reporter.stop()
+            assert time.time() - began < 2.5
+        finally:
+            reporter._publish_lock.release()

@@ -554,17 +554,36 @@ class TelemetryReporter:
             if not self.thread.is_alive():
                 self.thread = None
 
-        # Let an in-flight push finish before tearing the transports down, but
-        # never block shutdown on one that is stuck: an HTTP push can outlast
-        # this, and waiting on the lock unconditionally would trade a racy
-        # close for a stop() that never returns.
-        acquired = self._publish_lock.acquire(timeout=2.0)
-        try:
-            if self.mqtt:
-                self.mqtt.close()
-        finally:
-            if acquired:
+        self._close_transports()
+
+    def _close_transports(self):
+        """
+        Close the transports, without racing an in-flight publish.
+
+        stop() must stay responsive, so this only waits 2s inline for the
+        common case where nothing is publishing. If a push is still running
+        past that - an HTTP push can outlast this, since its own timeout
+        defaults to 5s - closing here would tear the client down mid-publish,
+        so the close itself is handed to a short-lived thread that waits as
+        long as it takes. stop() still returns promptly either way, and the
+        transport is still guaranteed to close rather than being left running
+        forever, which waiting on the lock unconditionally right here would
+        risk turning into.
+        """
+        if self._publish_lock.acquire(timeout=2.0):
+            try:
+                if self.mqtt:
+                    self.mqtt.close()
+            finally:
                 self._publish_lock.release()
+            return
+
+        def close_when_free():
+            with self._publish_lock:
+                if self.mqtt:
+                    self.mqtt.close()
+
+        threading.Thread(target=close_when_free, daemon=True).start()
 
     def publish_once(self) -> dict:
         """
