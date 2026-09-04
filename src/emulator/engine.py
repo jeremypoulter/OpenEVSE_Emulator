@@ -136,9 +136,7 @@ class FirmwareEngine:
                         "firmware exited immediately (code %s)" % self.proc.returncode
                     )
                 if time.time() > deadline:
-                    raise EngineError(
-                        "firmware never opened %s" % self.socket_path
-                    )
+                    raise EngineError("firmware never opened %s" % self.socket_path)
                 time.sleep(0.02)
 
         self._spawn(self._channel_loop)

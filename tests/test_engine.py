@@ -16,8 +16,14 @@ from src.emulator.ev import EVSimulator
 from src.emulator.evse import EVSEState, EVSEStateMachine
 
 DEFAULT_BINARY = os.path.join(
-    os.path.dirname(__file__), "..", "..", "open_evse",
-    ".pio", "build", "native_oev6", "program",
+    os.path.dirname(__file__),
+    "..",
+    "..",
+    "open_evse",
+    ".pio",
+    "build",
+    "native_oev6",
+    "program",
 )
 
 
@@ -45,6 +51,7 @@ def engine(tmp_path):
 
 def _wait(pred, timeout=20, what="condition"):
     import time
+
     deadline = time.time() + timeout
     while time.time() < deadline:
         if pred():
@@ -86,8 +93,8 @@ def test_vehicle_drives_the_firmware_to_charging(engine):
     """The EV model plugs in and asks to charge; the firmware decides to close
     the contactor."""
     _wait(lambda: engine.boot_postcode is not None, what="boot")
-    engine.process_command("$FE*AF")   # enable
-    engine.process_command("$SB*B9")   # clear the boot lock
+    engine.process_command("$FE*AF")  # enable
+    engine.process_command("$SB*B9")  # clear the boot lock
 
     ev = EVSimulator()
     ev.connected = True
@@ -95,8 +102,7 @@ def test_vehicle_drives_the_firmware_to_charging(engine):
     # Charging only starts once the firmware offers current, so the vehicle
     # reports no draw yet; pilot state B is what it presents.
     engine.apply_ev(ev)
-    _wait(lambda: engine.pilot and engine.pilot[0] == "PWM",
-          what="pilot PWM")
+    _wait(lambda: engine.pilot and engine.pilot[0] == "PWM", what="pilot PWM")
 
     # Now the car starts drawing, which is pilot state C.
     ev._actual_charge_rate_kw = 7.0

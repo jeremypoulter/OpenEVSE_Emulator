@@ -43,8 +43,8 @@ Examples:
         type=str,
         default=argparse.SUPPRESS,
         help="Run the natively-built OpenEVSE firmware as the EVSE, instead of "
-             "the Python state machine. Path to the binary built in the "
-             "open_evse repository with 'pio run -e native_oev6'.",
+        "the Python state machine. Path to the binary built in the "
+        "open_evse repository with 'pio run -e native_oev6'.",
     )
     parser.add_argument(
         "--engine-board",

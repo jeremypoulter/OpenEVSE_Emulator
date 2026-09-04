@@ -203,7 +203,7 @@ python src/main.py --engine-binary ../open_evse/.pio/build/native_oev6/program
 
 The emulator reports which engine it started:
 
-```
+```text
 Starting firmware engine...
 Engine: ../open_evse/.pio/build/native_oev6/program
         board=oev6 version=9.3.0.native
@@ -224,7 +224,7 @@ Or via `config.json`:
 ### What changes
 
 | | Default | Engine mode |
-|---|---|---|
+| --- | --- | --- |
 | EVSE state machine | `evse.py` | the firmware |
 | RAPI protocol | `rapi.py` | the firmware |
 | Vehicle | `ev.py` | `ev.py` |
