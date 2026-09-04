@@ -419,3 +419,37 @@ class TestNumericCoercion:
 
     def test_range_accepts_a_numeric_string(self):
         assert EVSimulator(range_km_at_full="500").range_km_at_full == 500.0
+
+
+class TestBoolRejectedAsNumber:
+    """
+    bool is a subclass of int, so float(True) == 1.0 would otherwise accept a
+    JSON/config boolean as a valid numeric value - the same bug already fixed
+    in the reporting config and the web API's charge_limit/range endpoints,
+    also present here since EVSimulator is constructed directly from
+    config.json, bypassing those API-layer guards.
+    """
+
+    def test_constructor_rejects_bool_charge_limit(self):
+        with pytest.raises(ValueError):
+            EVSimulator(charge_limit_soc=True)
+
+    def test_constructor_rejects_bool_range(self):
+        with pytest.raises(ValueError):
+            EVSimulator(range_km_at_full=True)
+
+    def test_charge_limit_setter_rejects_bool(self):
+        ev = EVSimulator()
+        with pytest.raises(ValueError):
+            ev.charge_limit_soc = True
+
+    def test_range_setter_rejects_bool(self):
+        ev = EVSimulator()
+        with pytest.raises(ValueError):
+            ev.range_km_at_full = False
+
+    def test_numeric_strings_still_work(self):
+        """The guard must reject only bools, not the coercion path itself."""
+        ev = EVSimulator(charge_limit_soc="80", range_km_at_full="500")
+        assert ev.charge_limit_soc == 80.0
+        assert ev.range_km_at_full == 500.0

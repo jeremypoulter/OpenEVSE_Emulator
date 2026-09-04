@@ -20,6 +20,31 @@ DIRECT_VARIANCE_RANGE = 0.01  # +/- 1% in direct mode
 BATTERY_VARIANCE_RANGE = 0.01  # -1% in battery mode
 
 
+def _as_float(value: float) -> float:
+    """
+    Coerce a config value to float, rejecting bools.
+
+    bool is a subclass of int, so float(True) == 1.0 would otherwise accept a
+    JSON/config boolean as a valid numeric value (e.g. charge_limit_soc: true
+    becoming a 1% limit) rather than a type error.
+
+    Args:
+        value: Value to coerce
+
+    Returns:
+        The value as a float
+
+    Raises:
+        ValueError: If value is a bool, or is not convertible to float
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"expected a number, got {value!r}")
+    try:
+        return float(value)
+    except TypeError:
+        raise ValueError(f"expected a number, got {value!r}") from None
+
+
 class EVSimulator:
     """Simulates an electric vehicle."""
 
@@ -43,7 +68,7 @@ class EVSimulator:
         """
         self.battery_capacity_kwh = battery_capacity_kwh
         self.max_charge_rate_kw = max_charge_rate_kw
-        self._range_km_at_full = max(0.0, float(range_km_at_full))
+        self._range_km_at_full = max(0.0, _as_float(range_km_at_full))
 
         # Connection state
         self._connected = False
@@ -51,7 +76,7 @@ class EVSimulator:
 
         # Battery state
         self._soc = 50.0  # State of charge percentage (0-100)
-        self._charge_limit_soc = max(0.0, min(100.0, float(charge_limit_soc)))
+        self._charge_limit_soc = max(0.0, min(100.0, _as_float(charge_limit_soc)))
 
         # Charging state
         self._actual_charge_rate_kw = 0.0
@@ -119,7 +144,7 @@ class EVSimulator:
     @charge_limit_soc.setter
     def charge_limit_soc(self, value: float):
         with self._lock:
-            self._charge_limit_soc = max(0.0, min(100.0, float(value)))
+            self._charge_limit_soc = max(0.0, min(100.0, _as_float(value)))
 
     @property
     def range_km_at_full(self) -> float:
@@ -130,7 +155,7 @@ class EVSimulator:
     @range_km_at_full.setter
     def range_km_at_full(self, value: float):
         with self._lock:
-            self._range_km_at_full = max(0.0, float(value))
+            self._range_km_at_full = max(0.0, _as_float(value))
 
     @property
     def range_km(self) -> float:
