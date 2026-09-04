@@ -9,6 +9,19 @@ let currentState = {
     ev: {}
 };
 
+// Sliders are refreshed from the server only while the user is not holding
+// them. Re-syncing unconditionally snaps the control back mid-drag; never
+// re-syncing goes stale, which the charge limit can do because
+// /api/ev/charge_limit is a public endpoint another tab or script can call.
+function syncSlider(id, value) {
+    const slider = document.getElementById(id);
+    if (document.activeElement === slider) {
+        return;
+    }
+    slider.value = value;
+    document.getElementById(`${id}-value`).textContent = value;
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeControls();
@@ -33,6 +46,14 @@ function initializeControls() {
     
     document.getElementById('battery-soc').addEventListener('change', function(e) {
         apiCall('/api/ev/soc', 'POST', { soc: parseFloat(e.target.value) });
+    });
+
+    document.getElementById('charge-limit').addEventListener('input', function(e) {
+        document.getElementById('charge-limit-value').textContent = e.target.value;
+    });
+
+    document.getElementById('charge-limit').addEventListener('change', function(e) {
+        apiCall('/api/ev/charge_limit', 'POST', { charge_limit_soc: parseFloat(e.target.value) });
     });
 
     // Direct mode toggle
@@ -272,9 +293,12 @@ function updateDisplay() {
     document.getElementById('firmware-version').value = evse.firmware_version || '8.2.3';
     document.getElementById('protocol-version').textContent = evse.protocol_version || '-';
 
-    // EV sliders
-    document.getElementById('battery-soc').value = ev.soc;
-    document.getElementById('battery-soc-value').textContent = ev.soc;
+    // EV sliders. SoC does move on its own while charging, so it keeps
+    // refreshing - just not out from under a drag.
+    syncSlider('battery-soc', ev.soc);
+
+    // Charging stops here, so a limit below the current SoC means no charge.
+    syncSlider('charge-limit', ev.charge_limit_soc ?? 100);
 
     // Sync direct mode UI
     const directModeToggle = document.getElementById('direct-mode-toggle');

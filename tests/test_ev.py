@@ -300,3 +300,166 @@ def test_get_status_includes_new_fields():
     assert status["direct_mode"] is True
     assert status["direct_current_amps"] == 15.0
     assert status["current_variance_enabled"] is True
+
+
+class TestVehicleTelemetryState:
+    """Range, charge limit and ETA added for telemetry reporting."""
+
+    def test_range_derives_from_soc(self):
+        ev = EVSimulator(range_km_at_full=400.0)
+        ev.soc = 25.0
+        assert ev.range_km == 100.0
+
+    def test_charge_limit_is_clamped(self):
+        ev = EVSimulator(charge_limit_soc=150.0)
+        assert ev.charge_limit_soc == 100.0
+        ev.charge_limit_soc = -10.0
+        assert ev.charge_limit_soc == 0.0
+
+    def test_default_charge_limit_preserves_charging_to_full(self):
+        """The default of 100 must not change existing charging behaviour."""
+        ev = EVSimulator(battery_capacity_kwh=10.0, max_charge_rate_kw=100.0)
+        ev.soc = 99.0
+        ev.connected = True
+        ev.requesting_charge = True
+
+        ev.update_charging(offered_current_amps=32, voltage=240, delta_time_sec=3600)
+
+        assert ev.soc == 100.0
+
+    def test_charging_stops_at_the_charge_limit(self):
+        ev = EVSimulator(
+            battery_capacity_kwh=10.0, max_charge_rate_kw=100.0, charge_limit_soc=80.0
+        )
+        ev.soc = 70.0
+        ev.connected = True
+        ev.requesting_charge = True
+
+        ev.update_charging(offered_current_amps=32, voltage=240, delta_time_sec=3600)
+
+        assert ev.soc == 80.0
+        assert ev.requesting_charge is False
+        assert ev.actual_charge_rate_kw == 0.0
+
+    def test_charging_does_not_start_above_the_limit(self):
+        ev = EVSimulator(charge_limit_soc=50.0)
+        ev.soc = 60.0
+        ev.connected = True
+        ev.requesting_charge = True
+
+        ev.update_charging(offered_current_amps=32, voltage=240, delta_time_sec=1.0)
+
+        assert ev.soc == 60.0
+        assert ev.actual_charge_rate_kw == 0.0
+        # Must match the mid-charge path, which also clears the request; a
+        # standing request that can never be satisfied is not honest state.
+        assert ev.requesting_charge is False
+
+    def test_eta_is_zero_when_idle(self):
+        assert EVSimulator().time_to_full_charge_sec == 0
+
+    def test_eta_counts_down_to_the_charge_limit(self):
+        """A limit below 100 must shorten the ETA, not report time to full."""
+        ev = EVSimulator(battery_capacity_kwh=100.0, charge_limit_soc=60.0)
+        ev.soc = 50.0
+        ev.connected = True
+        ev.requesting_charge = True
+        ev.direct_mode = True
+        ev.direct_current_amps = 10.0
+
+        # 10 A at 1000 V = 10 kW; 10 kWh remaining to the 60% limit = 1 hour.
+        ev.update_charging(offered_current_amps=0, voltage=1000.0, delta_time_sec=0)
+
+        assert ev.time_to_full_charge_sec == 3600
+
+    def test_status_exposes_telemetry_fields(self):
+        status = EVSimulator().get_status()
+        for key in (
+            "range_km",
+            "range_km_at_full",
+            "charge_limit_soc",
+            "time_to_full_charge_sec",
+        ):
+            assert key in status
+
+
+class TestRangeAtFullIsGuarded:
+    """range_km_at_full is shared with the simulation loop, like the rest."""
+
+    def test_setting_range_updates_derived_range(self):
+        ev = EVSimulator(range_km_at_full=400.0)
+        ev.soc = 50.0
+
+        ev.range_km_at_full = 500.0
+
+        assert ev.range_km_at_full == 500.0
+        assert ev.range_km == 250.0
+
+    def test_status_does_not_deadlock(self):
+        """get_status() holds the lock, so it must not re-enter the property."""
+        ev = EVSimulator(range_km_at_full=400.0)
+        assert ev.get_status()["range_km_at_full"] == 400.0
+
+    def test_negative_range_is_clamped(self):
+        ev = EVSimulator()
+        ev.range_km_at_full = -100.0
+        assert ev.range_km_at_full == 0.0
+
+
+class TestNumericCoercion:
+    """A hand-written config.json can carry numbers as strings."""
+
+    def test_charge_limit_accepts_a_numeric_string(self):
+        assert EVSimulator(charge_limit_soc="80").charge_limit_soc == 80.0
+
+    def test_charge_limit_setter_accepts_a_numeric_string(self):
+        ev = EVSimulator()
+        ev.charge_limit_soc = "65"
+        assert ev.charge_limit_soc == 65.0
+
+    def test_range_accepts_a_numeric_string(self):
+        assert EVSimulator(range_km_at_full="500").range_km_at_full == 500.0
+
+
+class TestBoolRejectedAsNumber:
+    """
+    bool is a subclass of int, so float(True) == 1.0 would otherwise accept a
+    JSON/config boolean as a valid numeric value - the same bug already fixed
+    in the reporting config and the web API's charge_limit/range endpoints,
+    also present here since EVSimulator is constructed directly from
+    config.json, bypassing those API-layer guards.
+    """
+
+    def test_constructor_rejects_bool_charge_limit(self):
+        with pytest.raises(ValueError):
+            EVSimulator(charge_limit_soc=True)
+
+    def test_constructor_rejects_bool_range(self):
+        with pytest.raises(ValueError):
+            EVSimulator(range_km_at_full=True)
+
+    def test_charge_limit_setter_rejects_bool(self):
+        ev = EVSimulator()
+        with pytest.raises(ValueError):
+            ev.charge_limit_soc = True
+
+    def test_range_setter_rejects_bool(self):
+        ev = EVSimulator()
+        with pytest.raises(ValueError):
+            ev.range_km_at_full = False
+
+    def test_numeric_strings_still_work(self):
+        """The guard must reject only bools, not the coercion path itself."""
+        ev = EVSimulator(charge_limit_soc="80", range_km_at_full="500")
+        assert ev.charge_limit_soc == 80.0
+        assert ev.range_km_at_full == 500.0
+
+    def test_non_numeric_string_gives_a_consistent_message(self):
+        """
+        float() already raises ValueError for a bad string, with its own
+        message. Without normalizing it too, this one rejection path would
+        read differently from every other one in the same function.
+        """
+        with pytest.raises(ValueError) as exc_info:
+            EVSimulator(charge_limit_soc="not-a-number")
+        assert "expected a number" in str(exc_info.value)

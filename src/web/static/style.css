@@ -253,6 +253,14 @@ header .subtitle {
     background: #5a6268;
 }
 
+/* #battery-controls is a plain wrapper inside .controls, so its control-groups
+   do not get that container's flex gap and would otherwise butt together. A
+   margin rather than a flex gap because updateModeUI() sets display:block
+   inline when switching modes, which would override a display:flex here. */
+#battery-controls .control-group + .control-group {
+    margin-top: 15px;
+}
+
 input[type="range"] {
     width: 100%;
     height: 8px;

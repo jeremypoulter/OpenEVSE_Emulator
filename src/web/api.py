@@ -8,14 +8,18 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 # Handle imports for both direct execution and test execution
 try:
     from emulator.evse import ErrorFlags
+    from emulator.config import merge_config
+    from emulator.telemetry import build_reporter, TelemetryReporter
 except ImportError:
     # When imported as src.web.api from tests
     from ..emulator.evse import ErrorFlags
+    from ..emulator.config import merge_config
+    from ..emulator.telemetry import build_reporter, TelemetryReporter
 
 if TYPE_CHECKING:
     try:
@@ -24,6 +28,112 @@ if TYPE_CHECKING:
     except ImportError:
         from ..emulator.evse import EVSEStateMachine
         from ..emulator.ev import EVSimulator
+
+
+# Keys accepted by POST /api/reporting/config, mirroring the 'reporting' config
+# section. Checked explicitly because merge_config would otherwise fold a typo
+# into the stored config, where it would sit looking applied and doing nothing.
+REPORTING_SECTION_KEYS = {
+    "http": {"enabled", "url", "username", "password", "timeout_sec"},
+    "mqtt": {
+        "enabled",
+        "host",
+        "port",
+        "username",
+        "password",
+        "topic_prefix",
+        "topics",
+        "retain",
+    },
+}
+REPORTING_SCALAR_KEYS = {"interval_sec"}
+
+
+def _validate_reporting_overrides(overrides: dict) -> Optional[str]:
+    """
+    Check a partial reporting config for unknown keys and wrong shapes.
+
+    Args:
+        overrides: Partial 'reporting' config from a request body
+
+    Returns:
+        An error message, or None when the overrides are acceptable
+    """
+    unknown = set(overrides) - set(REPORTING_SECTION_KEYS) - REPORTING_SCALAR_KEYS
+    if unknown:
+        return f"Unknown key(s): {', '.join(sorted(unknown))}"
+
+    for section, allowed in REPORTING_SECTION_KEYS.items():
+        if section not in overrides:
+            continue
+
+        value = overrides[section]
+        if not isinstance(value, dict):
+            # Without this a scalar replaces the whole section and then blows
+            # up inside build_reporter as a 500 rather than a clean 400.
+            return f"'{section}' must be an object"
+
+        unknown = set(value) - allowed
+        if unknown:
+            return f"Unknown {section} key(s): {', '.join(sorted(unknown))}"
+
+    return None
+
+
+SECRET_KEYS = ("password",)
+MASKED = "***"
+
+
+def _strip_masked_secrets(overrides: dict) -> dict:
+    """
+    Drop masked secret values from a partial config before it is merged.
+
+    GET /api/reporting/config masks passwords as MASKED, so the natural
+    read-modify-write pattern - GET the config, change one field, POST the
+    rest back unchanged - would otherwise overwrite the real password with
+    the literal string "***". Dropping the key here instead means "***"
+    means "leave this one alone", matching what a caller doing that actually
+    intends.
+
+    Args:
+        overrides: Partial config from a request body
+
+    Returns:
+        A copy of overrides with masked secret keys removed
+    """
+    stripped = {}
+    for key, value in overrides.items():
+        if isinstance(value, dict):
+            stripped[key] = _strip_masked_secrets(value)
+        elif key in SECRET_KEYS and value == MASKED:
+            continue
+        else:
+            stripped[key] = value
+    return stripped
+
+
+def _mask_secrets(config: dict) -> dict:
+    """
+    Copy a config with secret values replaced.
+
+    The reporting config carries the OpenEVSE and broker passwords, and this
+    API has no auth of its own, so they are never echoed back.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        A deep copy with secrets masked
+    """
+    masked = {}
+    for key, value in config.items():
+        if isinstance(value, dict):
+            masked[key] = _mask_secrets(value)
+        elif key in SECRET_KEYS and value is not None:
+            masked[key] = MASKED
+        else:
+            masked[key] = value
+    return masked
 
 
 class WebAPI:
@@ -35,6 +145,8 @@ class WebAPI:
         ev: "EVSimulator",
         host: str = "0.0.0.0",
         port: int = 8080,
+        reporter=None,
+        reporting_config: dict | None = None,
     ):
         """
         Initialize the web API.
@@ -44,11 +156,16 @@ class WebAPI:
             ev: EV simulator instance
             host: Host to bind to
             port: Port to bind to
+            reporter: Optional TelemetryReporter for the reporting endpoints
+            reporting_config: The 'reporting' config the reporter was built
+                from, used as the base for runtime reconfiguration
         """
         self.evse = evse
         self.ev = ev
         self.host = host
         self.port = port
+        self.reporter = reporter
+        self.reporting_config = reporting_config or {}
 
         # Create Flask app
         self.app = Flask(
@@ -575,6 +692,109 @@ ws.onmessage = (event) => {
             except (ValueError, TypeError):
                 return jsonify({"error": "Invalid amps value"}), 400
 
+        @self.app.route("/api/ev/charge_limit", methods=["POST"])
+        def set_charge_limit():
+            data = request.get_json()
+            if not data or "charge_limit_soc" not in data:
+                return jsonify({"error": "charge_limit_soc required"}), 400
+
+            limit = data["charge_limit_soc"]
+            # bool is a subclass of int, so float(True) == 1.0 would otherwise
+            # accept a JSON boolean as a 1% charge limit.
+            if isinstance(limit, bool):
+                return jsonify({"error": "charge_limit_soc must be a number"}), 400
+            try:
+                limit = float(limit)
+            except (TypeError, ValueError):
+                return jsonify({"error": "charge_limit_soc must be a number"}), 400
+
+            if not 0 <= limit <= 100:
+                return jsonify({"error": "charge_limit_soc must be 0-100"}), 400
+
+            self.ev.charge_limit_soc = limit
+            self._broadcast_status()
+            return jsonify({"success": True, "charge_limit_soc": limit})
+
+        @self.app.route("/api/ev/range", methods=["POST"])
+        def set_range():
+            data = request.get_json()
+            if not data or "range_km_at_full" not in data:
+                return jsonify({"error": "range_km_at_full required"}), 400
+
+            range_km = data["range_km_at_full"]
+            # Same as charge_limit_soc above: bool is a subclass of int, so a
+            # JSON boolean would otherwise coerce to 0.0 or 1.0 silently.
+            if isinstance(range_km, bool):
+                return jsonify({"error": "range_km_at_full must be a number"}), 400
+            try:
+                range_km = float(range_km)
+            except (TypeError, ValueError):
+                return jsonify({"error": "range_km_at_full must be a number"}), 400
+
+            if range_km <= 0:
+                return jsonify({"error": "range_km_at_full must be > 0"}), 400
+
+            self.ev.range_km_at_full = range_km
+            self._broadcast_status()
+            return jsonify({"success": True, "range_km_at_full": range_km})
+
+        @self.app.route("/api/reporting/config", methods=["GET"])
+        def get_reporting_config():
+            return jsonify(_mask_secrets(self.reporting_config))
+
+        @self.app.route("/api/reporting/config", methods=["POST"])
+        def set_reporting_config():
+            """
+            Merge a partial reporting config and rebuild the reporter.
+
+            The emulator is normally started before the OpenEVSE it reports to,
+            so the HTTP target is rarely known at launch. This applies settings
+            to the running emulator; it does not write config.json.
+            """
+            overrides = request.get_json(silent=True)
+            if not isinstance(overrides, dict):
+                return jsonify({"error": "A JSON object is required"}), 400
+
+            overrides = _strip_masked_secrets(overrides)
+
+            error = _validate_reporting_overrides(overrides)
+            if error:
+                return jsonify({"error": error}), 400
+
+            try:
+                config = self._reconfigure_reporting(overrides)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+
+            return jsonify(
+                {
+                    "success": True,
+                    "config": _mask_secrets(config),
+                    "status": self.reporter.get_status(),
+                }
+            )
+
+        @self.app.route("/api/reporting/status", methods=["GET"])
+        def get_reporting_status():
+            # No hand-rolled shape here: a disabled TelemetryReporter already
+            # answers get_status() with every key at its inert default, so
+            # constructing one guarantees this can never drift from the real
+            # shape the way a separately maintained dict could.
+            reporter = (
+                self.reporter
+                if self.reporter is not None
+                else TelemetryReporter(self.ev)
+            )
+            return jsonify(reporter.get_status())
+
+        @self.app.route("/api/reporting/publish", methods=["POST"])
+        def publish_reporting():
+            """Push telemetry immediately, rather than waiting for the interval."""
+            if self.reporter is None or not self.reporter.enabled:
+                return jsonify({"error": "Telemetry reporting is not configured"}), 409
+
+            return jsonify(self.reporter.publish_once())
+
         @self.app.route("/api/ev/mode", methods=["POST"])
         def set_ev_mode():
             data = request.get_json()
@@ -670,6 +890,39 @@ ws.onmessage = (event) => {
         self.socketio.emit(
             "state_change", {"state": int(new_state), "state_name": new_state.name}
         )
+
+    def _reconfigure_reporting(self, overrides: dict) -> dict:
+        """
+        Apply a partial reporting config, replacing the running reporter.
+
+        Args:
+            overrides: Partial 'reporting' config to merge over the current one
+
+        Returns:
+            The merged configuration now in effect
+
+        Raises:
+            ValueError: If the merged configuration is invalid, in which case
+                the existing reporter is left untouched and still running
+        """
+        merged = merge_config(self.reporting_config, overrides)
+
+        # Built before anything is torn down: an invalid config must raise
+        # here, leaving the current reporter running rather than stopping it
+        # and then failing to replace it.
+        replacement = build_reporter(self.ev, merged)
+
+        if self.reporter is not None:
+            self.reporter.stop()
+
+        self.reporter = replacement
+        self.reporting_config = merged
+
+        # A no-op when no transport is configured, so this also covers
+        # disabling reporting entirely.
+        replacement.start()
+
+        return merged
 
     def _broadcast_status(self):
         """Broadcast status update via WebSocket."""

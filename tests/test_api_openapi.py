@@ -367,3 +367,68 @@ class TestOpenAPIExamples:
         assert response.status_code == 200
         data = json.loads(response.data)
         assert data["success"] is True
+
+
+class TestSpecMatchesImplementation:
+    """Guard against the spec and the code drifting apart."""
+
+    def test_documented_response_fields_are_actually_returned(
+        self, api_client, openapi_spec
+    ):
+        """
+        A declared 200 body must match what the endpoint really sends.
+
+        Generated clients are built from the spec, so a response that quietly
+        carries more or fewer fields than declared breaks them.
+        """
+        cases = [
+            ("/api/ev/charge_limit", {"charge_limit_soc": 80}),
+            ("/api/ev/range", {"range_km_at_full": 400}),
+        ]
+
+        for path, body in cases:
+            schema = openapi_spec["paths"][path]["post"]["responses"]["200"]["content"][
+                "application/json"
+            ]["schema"]
+            documented = set(schema.get("properties", {}))
+
+            response = api_client.post(path, json=body)
+            assert response.status_code == 200, path
+
+            assert set(json.loads(response.data)) == documented, path
+
+    def test_declared_range_minimum_matches_validation(self, api_client, openapi_spec):
+        """The spec excludes 0, so the implementation must reject it too."""
+        schema = openapi_spec["paths"]["/api/ev/range"]["post"]["requestBody"][
+            "content"
+        ]["application/json"]["schema"]["properties"]["range_km_at_full"]
+
+        assert schema.get("exclusiveMinimum") is True
+        assert (
+            api_client.post("/api/ev/range", json={"range_km_at_full": 0}).status_code
+            == 400
+        )
+
+    def test_nullable_reporting_fields_are_declared_nullable(self, openapi_spec):
+        """
+        Every field that can come back null must say so in the schema.
+
+        Reporting is disabled by default, so an unconfigured emulator returns
+        null for the target it has not been given yet. A generated client
+        built from a non-nullable schema would reject that valid response.
+        Checked against the real default config rather than a hardcoded list,
+        so a future nullable option cannot slip through.
+        """
+        from src.emulator.config import default_config
+
+        schema = openapi_spec["components"]["schemas"]["ReportingConfig"]
+        reporting = default_config()["reporting"]
+
+        for section in ("http", "mqtt"):
+            properties = schema["properties"][section]["properties"]
+            for key, value in reporting[section].items():
+                if value is None:
+                    assert properties[key].get("nullable") is True, (
+                        f"reporting.{section}.{key} defaults to null but is "
+                        f"not declared nullable"
+                    )

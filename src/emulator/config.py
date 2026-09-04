@@ -45,7 +45,35 @@ def default_config() -> dict:
             "service_level": "L2",
             "gfci_self_test": True,
         },
-        "ev": {"battery_capacity_kwh": 75, "max_charge_rate_kw": 7.2},
+        "ev": {
+            "battery_capacity_kwh": 75,
+            "max_charge_rate_kw": 7.2,
+            "range_km_at_full": 400,  # Driving range in km at 100% SoC
+            "charge_limit_soc": 100,  # SoC at which the vehicle stops charging
+        },
+        # Push the simulated vehicle's battery state to a real OpenEVSE. The
+        # OpenEVSE only accepts one source at a time: set its vehicle_data_src
+        # to 3 for HTTP or 2 for MQTT, or the pushes are silently ignored.
+        "reporting": {
+            "interval_sec": 30,
+            "http": {
+                "enabled": False,
+                "url": None,  # OpenEVSE base URL, e.g. http://openevse.local
+                "username": None,  # Only needed if the OpenEVSE has a password
+                "password": None,
+                "timeout_sec": 5,
+            },
+            "mqtt": {
+                "enabled": False,
+                "host": None,
+                "port": 1883,
+                "username": None,
+                "password": None,
+                "topic_prefix": "emulator/vehicle",
+                "topics": {},  # Per-field overrides, e.g. {"battery_level": "car/soc"}
+                "retain": True,
+            },
+        },
         "web": {"host": "0.0.0.0", "port": 8080},
         "simulation": {
             "update_interval_ms": 1000,
@@ -141,7 +169,48 @@ ENV_OVERRIDE_PATHS = {
     "SERIAL_RECONNECT_BACKOFF": "serial.reconnect_backoff_ms",
     "WEB_HOST": "web.host",
     "WEB_PORT": "web.port",
+    "EV_RANGE_KM_AT_FULL": "ev.range_km_at_full",
+    "EV_CHARGE_LIMIT_SOC": "ev.charge_limit_soc",
+    "REPORTING_INTERVAL": "reporting.interval_sec",
+    "REPORTING_HTTP_ENABLED": "reporting.http.enabled",
+    "REPORTING_HTTP_URL": "reporting.http.url",
+    "REPORTING_HTTP_USERNAME": "reporting.http.username",
+    "REPORTING_HTTP_PASSWORD": "reporting.http.password",
+    "REPORTING_MQTT_ENABLED": "reporting.mqtt.enabled",
+    "REPORTING_MQTT_HOST": "reporting.mqtt.host",
+    "REPORTING_MQTT_PORT": "reporting.mqtt.port",
+    "REPORTING_MQTT_USERNAME": "reporting.mqtt.username",
+    "REPORTING_MQTT_PASSWORD": "reporting.mqtt.password",
+    "REPORTING_MQTT_TOPIC_PREFIX": "reporting.mqtt.topic_prefix",
+    "REPORTING_HTTP_TIMEOUT": "reporting.http.timeout_sec",
+    "REPORTING_MQTT_RETAIN": "reporting.mqtt.retain",
 }
+
+
+def _parse_bool(value: str) -> bool:
+    """
+    Parse a boolean from an environment variable.
+
+    Accepts the usual truthy and falsy spellings. Anything else raises, so the
+    override machinery reports it like any other bad value and leaves the
+    existing setting in place.
+
+    Args:
+        value: String to parse
+
+    Returns:
+        The parsed boolean
+
+    Raises:
+        ValueError: If the value is not a recognised boolean spelling
+    """
+    lowered = str(value).strip().lower()
+    if lowered in ("1", "true", "yes", "on"):
+        return True
+    if lowered in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(f"Not a boolean: {value!r}")
+
 
 # Explicit type mapping for environment variable overrides
 ENV_OVERRIDE_TYPES = {
@@ -149,6 +218,14 @@ ENV_OVERRIDE_TYPES = {
     "serial.reconnect_timeout_sec": int,
     "serial.reconnect_backoff_ms": int,
     "web.port": int,
+    "ev.range_km_at_full": float,
+    "ev.charge_limit_soc": float,
+    "reporting.interval_sec": float,
+    "reporting.http.enabled": _parse_bool,
+    "reporting.mqtt.enabled": _parse_bool,
+    "reporting.mqtt.port": int,
+    "reporting.http.timeout_sec": float,
+    "reporting.mqtt.retain": _parse_bool,
 }
 
 
@@ -214,6 +291,21 @@ CLI_OVERRIDE_PATHS = {
     "evse_gfci_self_test": "evse.gfci_self_test",
     "ev_battery_capacity_kwh": "ev.battery_capacity_kwh",
     "ev_max_charge_rate_kw": "ev.max_charge_rate_kw",
+    "ev_range_km_at_full": "ev.range_km_at_full",
+    "ev_charge_limit_soc": "ev.charge_limit_soc",
+    "reporting_interval": "reporting.interval_sec",
+    "reporting_http_enabled": "reporting.http.enabled",
+    "reporting_mqtt_enabled": "reporting.mqtt.enabled",
+    "reporting_http_url": "reporting.http.url",
+    "reporting_http_username": "reporting.http.username",
+    "reporting_http_password": "reporting.http.password",
+    "reporting_mqtt_host": "reporting.mqtt.host",
+    "reporting_mqtt_port": "reporting.mqtt.port",
+    "reporting_mqtt_username": "reporting.mqtt.username",
+    "reporting_mqtt_password": "reporting.mqtt.password",
+    "reporting_mqtt_topic_prefix": "reporting.mqtt.topic_prefix",
+    "reporting_http_timeout": "reporting.http.timeout_sec",
+    "reporting_mqtt_retain": "reporting.mqtt.retain",
     "web_host": "web.host",
     "web_port": "web.port",
     "simulation_update_interval_ms": "simulation.update_interval_ms",

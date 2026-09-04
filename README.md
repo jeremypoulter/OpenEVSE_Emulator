@@ -20,6 +20,8 @@ without requiring physical hardware.
 - **Real-time WebSocket Updates**: Live status updates for connected clients
 - **Web UI**: Browser-based control panel with real-time visualization
 - **Virtual Serial Port**: PTY or TCP socket emulation for serial communication
+- **Vehicle Telemetry Reporting**: Push the simulated battery state to a real
+  OpenEVSE over HTTP or MQTT
 
 ## Quick Start
 
@@ -95,7 +97,7 @@ Open your browser and navigate to `http://localhost:8080` to access the control 
 
 - **Dashboard**: View real-time EVSE state, current, voltage, and battery status
 - **EVSE Controls**: Enable/disable charging, set current capacity, service level
-- **EV Controls**: Connect/disconnect vehicle, adjust battery SoC, set max charge rate
+- **EV Controls**: Connect/disconnect vehicle, adjust battery SoC and charge limit, set max charge rate
 - **Error Simulation**: Trigger various fault conditions for testing
 - **Serial Monitor**: View RAPI command/response traffic
 
@@ -177,7 +179,7 @@ ws.onmessage = (event) => {
 
 Edit `config.json` to customize emulator settings:
 
-```json
+```jsonc
 {
   "serial": {
     "mode": "pty",           // "pty", "tcp", or "device"
@@ -194,7 +196,9 @@ Edit `config.json` to customize emulator settings:
   },
   "ev": {
     "battery_capacity_kwh": 75,
-    "max_charge_rate_kw": 7.2
+    "max_charge_rate_kw": 7.2,
+    "range_km_at_full": 400,  // Driving range in km at 100% SOC
+    "charge_limit_soc": 100   // SOC at which the vehicle stops charging
   },
   "web": {
     "host": "0.0.0.0",
@@ -210,6 +214,143 @@ The emulator supports OpenEVSE firmware profiles 8.2.3 and 9.0.0. Firmware
 9.0.0 adds the v9 `$SR` and `$GR` relay commands; these commands return
 `$NK` when the v8 profile is selected. Select the profile with
 `--evse-firmware-version` or the Firmware Version selector in the web UI.
+
+## Reporting Battery State to an OpenEVSE
+
+The emulator can push the simulated vehicle's battery state to a real OpenEVSE,
+so WiFi firmware features that consume vehicle data - SoC on the display, Boost,
+charge limits - can be exercised without a car. Both transports send the same
+four values, named as the firmware names them:
+
+| Field | Meaning | Units |
+| --- | --- | --- |
+| `battery_level` | State of charge | percent |
+| `battery_range` | Driving range, derived from SOC and `range_km_at_full` | km |
+| `time_to_full_charge` | Time until the charge limit is reached, 0 when idle | **seconds** |
+| `vehicle_charge_limit` | The vehicle's own charge limit | percent |
+
+### Set the OpenEVSE's vehicle data source first
+
+The OpenEVSE accepts vehicle data from **one source at a time**, chosen by its
+`vehicle_data_src` setting. If it does not match the transport you are using,
+the OpenEVSE parses the push and then silently discards the vehicle fields:
+
+| Transport | Required `vehicle_data_src` |
+| --- | --- |
+| HTTP | `3` |
+| MQTT | `2` |
+
+This is the most common reason for a push that appears to work but changes
+nothing. The HTTP transport detects it - the OpenEVSE only echoes back
+`vehicle_state_update` when it actually accepted the data - and logs a warning
+once, which also shows up in `GET /api/reporting/status` as `last_error`. MQTT
+publishing is fire-and-forget with no acknowledgement, so a wrong setting there
+cannot be detected from the emulator side.
+
+### HTTP
+
+Pushes to the OpenEVSE's `POST /status` endpoint. Give it the base URL; the
+`/status` path is appended (passing the full endpoint URL also works).
+Username and password are only needed if the OpenEVSE has a web password set.
+
+```bash
+python src/main.py \
+  --reporting-http --reporting-http-url http://openevse.local \
+  --reporting-http-username admin --reporting-http-password secret \
+  --reporting-interval 30
+```
+
+### MQTT
+
+Publishes each field to its own topic as a plain scalar value, retained so the
+OpenEVSE picks up the latest value as soon as it subscribes.
+
+```bash
+python src/main.py \
+  --reporting-mqtt --reporting-mqtt-host broker.local \
+  --reporting-mqtt-topic-prefix emulator/vehicle
+```
+
+The default topics are `<prefix>/soc`, `<prefix>/range`, `<prefix>/eta` and
+`<prefix>/charge_limit`. Set the matching topics in the OpenEVSE's MQTT
+configuration, or override individual topics in `config.json` to match topics
+it is already subscribed to.
+
+### Reporting configuration
+
+Both transports are independent and can run at the same time - useful for
+pointing at two devices, though a single OpenEVSE will only honour whichever
+one its `vehicle_data_src` selects.
+
+```json
+{
+  "reporting": {
+    "interval_sec": 30,
+    "http": {
+      "enabled": false,
+      "url": null,
+      "username": null,
+      "password": null,
+      "timeout_sec": 5
+    },
+    "mqtt": {
+      "enabled": false,
+      "host": null,
+      "port": 1883,
+      "username": null,
+      "password": null,
+      "topic_prefix": "emulator/vehicle",
+      "topics": {},
+      "retain": true
+    }
+  }
+}
+```
+
+Every scalar setting also has an environment variable (`REPORTING_HTTP_URL`,
+`REPORTING_MQTT_HOST`, `REPORTING_HTTP_TIMEOUT`, `REPORTING_MQTT_RETAIN`, ...)
+for Docker deployments. The one exception is `mqtt.topics`, since a per-field
+topic map does not reduce to a single variable; set it in `config.json` or
+over the runtime API instead.
+
+### Configuring at runtime
+
+The emulator is usually started before the OpenEVSE it reports to, so the HTTP
+URL and credentials often are not known at launch. `POST /api/reporting/config`
+applies them to the running emulator:
+
+```bash
+curl -X POST localhost:8080/api/reporting/config \
+  -H 'Content-Type: application/json' \
+  -d '{"http": {"enabled": true, "url": "http://openevse.local",
+                "username": "admin", "password": "secret"}}'
+```
+
+Only the keys you supply change, so the interval can be adjusted on its own
+with `{"interval_sec": 10}`, and reporting turned off again with
+`{"http": {"enabled": false}}`. Enabling a transport needs an explicit
+`"enabled": true`. If the merged configuration is invalid the request fails
+with 400 and the existing reporter keeps running untouched.
+
+This affects the running emulator only - it does not write `config.json`.
+`GET /api/reporting/config` returns the settings in effect, with passwords
+masked as `"***"`. Posting that mask back is a no-op for the password field,
+so reading the config, changing one setting, and posting the rest back
+unchanged does not overwrite the real password - only an actual new value
+replaces it.
+
+MQTT can be reconfigured the same way, though it rarely needs to be: the broker
+address is generally known up front, and it is the OpenEVSE that connects to it.
+
+### Checking it works
+
+```bash
+curl localhost:8080/api/reporting/status    # transports, last values, last error
+curl -X POST localhost:8080/api/reporting/publish   # push now, don't wait
+```
+
+A reporting failure never stops the emulator: transport errors are logged and
+retried on the next interval.
 
 ## Docker Deployment
 
@@ -428,6 +569,11 @@ To test the emulator with actual OpenEVSE WiFi firmware:
   localhost-only access, change `web.host` to `127.0.0.1` in `config.json`.
 - **No Authentication**: The emulator does not include authentication. Do not
   expose it to untrusted networks.
+- **Outbound Requests**: Telemetry reporting can be configured over the API, so
+  anyone who can reach it can point the emulator at a URL or broker of their
+  choosing and make it issue requests there. That is a wider reach than the rest
+  of the API, which only affects local simulation state. Keep the emulator off
+  untrusted networks, or bind it to `127.0.0.1`, if that matters to you.
 - **Development Use**: This emulator is intended for development and testing purposes only.
 
 ## Documentation

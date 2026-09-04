@@ -20,11 +20,43 @@ DIRECT_VARIANCE_RANGE = 0.01  # +/- 1% in direct mode
 BATTERY_VARIANCE_RANGE = 0.01  # -1% in battery mode
 
 
+def _as_float(value: float) -> float:
+    """
+    Coerce a config value to float, rejecting bools.
+
+    bool is a subclass of int, so float(True) == 1.0 would otherwise accept a
+    JSON/config boolean as a valid numeric value (e.g. charge_limit_soc: true
+    becoming a 1% limit) rather than a type error.
+
+    Args:
+        value: Value to coerce
+
+    Returns:
+        The value as a float
+
+    Raises:
+        ValueError: If value is a bool, or is not convertible to float
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"expected a number, got {value!r}")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        # float() already raises ValueError for a bad string, but with its own
+        # message ("could not convert string to float: ..."); normalizing it
+        # here keeps every rejection in this function reading the same way.
+        raise ValueError(f"expected a number, got {value!r}") from None
+
+
 class EVSimulator:
     """Simulates an electric vehicle."""
 
     def __init__(
-        self, battery_capacity_kwh: float = 75.0, max_charge_rate_kw: float = 7.2
+        self,
+        battery_capacity_kwh: float = 75.0,
+        max_charge_rate_kw: float = 7.2,
+        range_km_at_full: float = 400.0,
+        charge_limit_soc: float = 100.0,
     ):
         """
         Initialize the EV simulator.
@@ -32,9 +64,14 @@ class EVSimulator:
         Args:
             battery_capacity_kwh: Total battery capacity in kWh
             max_charge_rate_kw: Maximum charging rate in kW
+            range_km_at_full: Driving range in km at 100% SoC, used to derive
+                the reported range
+            charge_limit_soc: SoC percentage at which the vehicle stops
+                charging (100 = charge to full)
         """
         self.battery_capacity_kwh = battery_capacity_kwh
         self.max_charge_rate_kw = max_charge_rate_kw
+        self._range_km_at_full = max(0.0, _as_float(range_km_at_full))
 
         # Connection state
         self._connected = False
@@ -42,6 +79,7 @@ class EVSimulator:
 
         # Battery state
         self._soc = 50.0  # State of charge percentage (0-100)
+        self._charge_limit_soc = max(0.0, min(100.0, _as_float(charge_limit_soc)))
 
         # Charging state
         self._actual_charge_rate_kw = 0.0
@@ -99,6 +137,62 @@ class EVSimulator:
     def soc(self, value: float):
         with self._lock:
             self._soc = max(0.0, min(100.0, value))
+
+    @property
+    def charge_limit_soc(self) -> float:
+        """SoC percentage at which the vehicle stops charging."""
+        with self._lock:
+            return self._charge_limit_soc
+
+    @charge_limit_soc.setter
+    def charge_limit_soc(self, value: float):
+        with self._lock:
+            self._charge_limit_soc = max(0.0, min(100.0, _as_float(value)))
+
+    @property
+    def range_km_at_full(self) -> float:
+        """Driving range in km at 100% SoC."""
+        with self._lock:
+            return self._range_km_at_full
+
+    @range_km_at_full.setter
+    def range_km_at_full(self, value: float):
+        with self._lock:
+            self._range_km_at_full = max(0.0, _as_float(value))
+
+    @property
+    def range_km(self) -> float:
+        """Estimated driving range in km, derived from SoC."""
+        with self._lock:
+            return self._range_km()
+
+    @property
+    def time_to_full_charge_sec(self) -> int:
+        """Estimated seconds until the charge limit is reached (0 if idle)."""
+        with self._lock:
+            return self._time_to_full_charge_sec()
+
+    def _range_km(self) -> float:
+        """Range in km. Caller must hold the lock."""
+        return (self._soc / 100.0) * self._range_km_at_full
+
+    def _time_to_full_charge_sec(self) -> int:
+        """
+        Seconds until the charge limit is reached. Caller must hold the lock.
+
+        A linear estimate from the current charge rate: it deliberately ignores
+        the taper above TAPER_START_SOC, so it runs optimistic near the top of
+        the pack, the same way a real vehicle's estimate does.
+        """
+        if self._actual_charge_rate_kw <= 0.0:
+            return 0
+
+        remaining_pct = min(100.0, self._charge_limit_soc) - self._soc
+        if remaining_pct <= 0.0:
+            return 0
+
+        remaining_kwh = (remaining_pct / 100.0) * self.battery_capacity_kwh
+        return int(round((remaining_kwh / self._actual_charge_rate_kw) * 3600.0))
 
     @property
     def actual_charge_rate_kw(self) -> float:
@@ -216,7 +310,13 @@ class EVSimulator:
                 return
 
             # Battery emulation mode
-            if self._soc >= 100.0:
+            charge_ceiling = min(100.0, self._charge_limit_soc)
+            if self._soc >= charge_ceiling:
+                # Same outcome as reaching the ceiling mid-charge below: the
+                # vehicle stops asking. Leaving the flag set would report a
+                # request that can never be satisfied, which is what happens
+                # when the charge limit is lowered below the current SoC.
+                self._requesting_charge = False
                 self._actual_charge_rate_kw = 0.0
                 return
 
@@ -244,10 +344,10 @@ class EVSimulator:
             # Update battery SoC
             energy_added_kwh = (actual_power_kw * delta_time_sec) / 3600.0
             soc_increase = (energy_added_kwh / self.battery_capacity_kwh) * 100.0
-            self._soc = min(100.0, self._soc + soc_increase)
+            self._soc = min(charge_ceiling, self._soc + soc_increase)
 
-            # Stop requesting charge at 100%
-            if self._soc >= 100.0:
+            # Stop requesting charge once the vehicle's charge limit is reached
+            if self._soc >= charge_ceiling:
                 self._requesting_charge = False
                 self._actual_charge_rate_kw = 0.0
 
@@ -266,6 +366,10 @@ class EVSimulator:
                 "battery_capacity_kwh": self.battery_capacity_kwh,
                 "max_charge_rate_kw": self.max_charge_rate_kw,
                 "actual_charge_rate_kw": round(self._actual_charge_rate_kw, 2),
+                "range_km": round(self._range_km(), 1),
+                "range_km_at_full": self._range_km_at_full,
+                "charge_limit_soc": round(self._charge_limit_soc, 1),
+                "time_to_full_charge_sec": self._time_to_full_charge_sec(),
                 "diode_check_failed": self._diode_check_failed,
                 "direct_mode": self._direct_mode,
                 "direct_current_amps": round(self._direct_current_amps, 1),

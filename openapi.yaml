@@ -40,6 +40,8 @@ tags:
     description: Error simulation and management
   - name: Status
     description: Combined status information
+  - name: Reporting
+    description: Vehicle telemetry reporting to a real OpenEVSE
 
 paths:
   /api/evse/status:
@@ -300,6 +302,225 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
 
+  /api/ev/charge_limit:
+    post:
+      tags:
+        - EV
+      summary: Set the vehicle charge limit
+      description: >
+        Set the SoC percentage at which the simulated vehicle stops charging.
+        Reported to the OpenEVSE as vehicle_charge_limit.
+      operationId: setEvChargeLimit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - charge_limit_soc
+              properties:
+                charge_limit_soc:
+                  type: number
+                  format: float
+                  minimum: 0
+                  maximum: 100
+                  example: 80.0
+      responses:
+        '200':
+          description: Charge limit set successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  charge_limit_soc:
+                    type: number
+                    format: float
+                    example: 80.0
+        '400':
+          description: Invalid charge limit value
+
+  /api/ev/range:
+    post:
+      tags:
+        - EV
+      summary: Set the vehicle range at full charge
+      description: >
+        Set the driving range in km at 100% SoC. The reported battery_range is
+        derived from this and the current SoC.
+      operationId: setEvRange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - range_km_at_full
+              properties:
+                range_km_at_full:
+                  type: number
+                  format: float
+                  minimum: 0
+                  exclusiveMinimum: true
+                  example: 400.0
+      responses:
+        '200':
+          description: Range set successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  range_km_at_full:
+                    type: number
+                    format: float
+                    example: 400.0
+        '400':
+          description: Invalid range value
+
+  /api/reporting/config:
+    get:
+      tags:
+        - Reporting
+      summary: Get the vehicle telemetry reporting configuration
+      description: >
+        Returns the reporting configuration currently in effect. Passwords are
+        masked.
+      operationId: getReportingConfig
+      responses:
+        '200':
+          description: Current reporting configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportingConfig'
+    post:
+      tags:
+        - Reporting
+      summary: Configure vehicle telemetry reporting at runtime
+      description: >
+        Merge a partial reporting configuration and rebuild the reporter.
+        Intended for the usual case where the emulator is started before the
+        OpenEVSE it reports to, so the HTTP URL and credentials are not known
+        at launch. Only the keys supplied are changed. Enabling a transport
+        requires an explicit "enabled": true. If the merged configuration is
+        invalid the request fails and the existing reporter keeps running.
+        This applies to the running emulator only; it does not write
+        config.json.
+
+
+        Password fields accept the masked value "***" returned by GET as a
+        no-op, so reading the config, changing one field, and posting the
+        rest back does not overwrite a real password with the literal mask.
+      operationId: setReportingConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportingConfig'
+            examples:
+              pointAtAnOpenEVSE:
+                summary: Point a running emulator at an OpenEVSE
+                value:
+                  http:
+                    enabled: true
+                    url: http://openevse.local
+                    username: admin
+                    password: secret
+              changeInterval:
+                summary: Change only the push interval
+                value:
+                  interval_sec: 10
+              disable:
+                summary: Turn HTTP reporting off again
+                value:
+                  http:
+                    enabled: false
+      responses:
+        '200':
+          description: Configuration applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  config:
+                    $ref: '#/components/schemas/ReportingConfig'
+                  status:
+                    type: object
+        '400':
+          description: Invalid configuration; the previous reporter still runs
+
+  /api/reporting/status:
+    get:
+      tags:
+        - Reporting
+      summary: Get vehicle telemetry reporting status
+      description: >
+        Report which telemetry transports are configured, the last values
+        pushed, and the last error from each transport. Use this to diagnose a
+        push the OpenEVSE is ignoring because its vehicle_data_src does not
+        match the transport in use.
+      operationId: getReportingStatus
+      responses:
+        '200':
+          description: Current reporting status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  running:
+                    type: boolean
+                  interval_sec:
+                    type: number
+                  last_telemetry:
+                    type: object
+                    nullable: true
+                  http:
+                    type: object
+                    nullable: true
+                  mqtt:
+                    type: object
+                    nullable: true
+
+  /api/reporting/publish:
+    post:
+      tags:
+        - Reporting
+      summary: Push vehicle telemetry now
+      description: >
+        Send the current vehicle telemetry over every enabled transport
+        immediately, instead of waiting for the next interval.
+      operationId: publishReporting
+      responses:
+        '200':
+          description: Telemetry pushed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  telemetry:
+                    type: object
+                  results:
+                    type: object
+        '409':
+          description: Telemetry reporting is not configured
+
   /api/ev/soc:
     post:
       tags:
@@ -481,6 +702,68 @@ paths:
 
 components:
   schemas:
+    ReportingConfig:
+      type: object
+      description: >
+        Vehicle telemetry reporting settings. Both transports are independent
+        and may be enabled together, though a single OpenEVSE only honours the
+        one its vehicle_data_src selects (3 for HTTP, 2 for MQTT).
+      properties:
+        interval_sec:
+          type: number
+          description: Seconds between pushes
+          example: 30
+        http:
+          type: object
+          description: Push to the OpenEVSE's POST /status endpoint
+          properties:
+            enabled:
+              type: boolean
+            url:
+              type: string
+              nullable: true
+              description: >
+                Base URL; /status is appended if not already present. Null
+                until an OpenEVSE has been configured.
+              example: http://openevse.local
+            username:
+              type: string
+              nullable: true
+            password:
+              type: string
+              nullable: true
+              description: Masked as *** in responses
+            timeout_sec:
+              type: number
+        mqtt:
+          type: object
+          description: Publish each field to a broker as a scalar payload
+          properties:
+            enabled:
+              type: boolean
+            host:
+              type: string
+              nullable: true
+              description: Null until a broker has been configured
+            port:
+              type: integer
+            username:
+              type: string
+              nullable: true
+            password:
+              type: string
+              nullable: true
+              description: Masked as *** in responses
+            topic_prefix:
+              type: string
+              example: emulator/vehicle
+            topics:
+              type: object
+              description: Per-field topic overrides
+              additionalProperties:
+                type: string
+            retain:
+              type: boolean
     EvseStatus:
       type: object
       properties:

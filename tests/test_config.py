@@ -358,3 +358,95 @@ def test_get_nested_with_non_dict_intermediate():
     # Should return default when path goes through non-dict
     result = get_nested(config, "a.b.c", "default")
     assert result == "default"
+
+
+class TestReportingConfig:
+    """Defaults and overrides for the vehicle telemetry reporting section."""
+
+    def test_reporting_disabled_by_default(self):
+        config = default_config()
+        assert config["reporting"]["http"]["enabled"] is False
+        assert config["reporting"]["mqtt"]["enabled"] is False
+
+    def test_ev_defaults_include_range_and_charge_limit(self):
+        config = default_config()
+        assert config["ev"]["range_km_at_full"] == 400
+        assert config["ev"]["charge_limit_soc"] == 100
+
+    def test_env_enables_http_reporting(self, monkeypatch):
+        monkeypatch.setenv("REPORTING_HTTP_ENABLED", "true")
+        monkeypatch.setenv("REPORTING_HTTP_URL", "http://openevse.local")
+
+        config = default_config()
+        apply_env_overrides(config, verbose=False)
+
+        assert config["reporting"]["http"]["enabled"] is True
+        assert config["reporting"]["http"]["url"] == "http://openevse.local"
+
+    def test_env_boolean_accepts_common_spellings(self, monkeypatch):
+        for value in ("1", "yes", "on", "TRUE"):
+            monkeypatch.setenv("REPORTING_MQTT_ENABLED", value)
+            config = default_config()
+            apply_env_overrides(config, verbose=False)
+            assert config["reporting"]["mqtt"]["enabled"] is True, value
+
+        for value in ("0", "no", "off", "False"):
+            monkeypatch.setenv("REPORTING_MQTT_ENABLED", value)
+            config = default_config()
+            apply_env_overrides(config, verbose=False)
+            assert config["reporting"]["mqtt"]["enabled"] is False, value
+
+    def test_env_boolean_garbage_is_skipped(self, monkeypatch):
+        """An unparseable value must leave the default, not crash startup."""
+        monkeypatch.setenv("REPORTING_MQTT_ENABLED", "maybe")
+
+        config = default_config()
+        apply_env_overrides(config, verbose=False)
+
+        assert config["reporting"]["mqtt"]["enabled"] is False
+
+    def test_env_numeric_overrides(self, monkeypatch):
+        monkeypatch.setenv("REPORTING_INTERVAL", "15")
+        monkeypatch.setenv("REPORTING_MQTT_PORT", "8883")
+
+        config = default_config()
+        apply_env_overrides(config, verbose=False)
+
+        assert config["reporting"]["interval_sec"] == 15.0
+        assert config["reporting"]["mqtt"]["port"] == 8883
+
+    def test_cli_overrides_reporting(self):
+        config = default_config()
+        apply_cli_overrides(
+            config,
+            {
+                "reporting_http_enabled": True,
+                "reporting_http_url": "http://evse",
+                "reporting_interval": 5.0,
+            },
+        )
+
+        assert config["reporting"]["http"]["enabled"] is True
+        assert config["reporting"]["http"]["url"] == "http://evse"
+        assert config["reporting"]["interval_sec"] == 5.0
+
+    def test_env_overrides_http_timeout(self, monkeypatch):
+        monkeypatch.setenv("REPORTING_HTTP_TIMEOUT", "10")
+        config = default_config()
+        apply_env_overrides(config, verbose=False)
+        assert config["reporting"]["http"]["timeout_sec"] == 10.0
+
+    def test_env_overrides_mqtt_retain(self, monkeypatch):
+        monkeypatch.setenv("REPORTING_MQTT_RETAIN", "false")
+        config = default_config()
+        apply_env_overrides(config, verbose=False)
+        assert config["reporting"]["mqtt"]["retain"] is False
+
+    def test_cli_overrides_http_timeout_and_mqtt_retain(self):
+        config = default_config()
+        apply_cli_overrides(
+            config,
+            {"reporting_http_timeout": 20.0, "reporting_mqtt_retain": False},
+        )
+        assert config["reporting"]["http"]["timeout_sec"] == 20.0
+        assert config["reporting"]["mqtt"]["retain"] is False
