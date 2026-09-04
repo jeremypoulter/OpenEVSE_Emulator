@@ -511,8 +511,13 @@ class TestStopThreadReference:
 
         assert reporter.thread is None
 
-    def test_start_will_not_duplicate_a_stuck_thread(self):
-        """The two guarantees have to hold together, not just separately."""
+    def test_start_refuses_rather_than_duplicating_a_stuck_thread(self):
+        """
+        The two guarantees have to hold together, not just separately: no
+        second thread ever runs alongside the first, and start() must not
+        claim success while leaving that first thread's now-doomed loop
+        (running=False, stop_event set) to exit on its own, unreported.
+        """
         reporter = TelemetryReporter(EVSimulator(), http=MagicMock())
         stuck = MagicMock()
         stuck.is_alive.return_value = True
@@ -520,7 +525,8 @@ class TestStopThreadReference:
         reporter.running = True
         reporter.stop()
 
-        assert reporter.start() is True
+        assert reporter.start() is False
+        assert reporter.running is False
         assert reporter.thread is stuck
 
 
@@ -792,3 +798,56 @@ class TestMqttPortIsAWholeNumber:
     @pytest.mark.parametrize("port", [1883, 1883.0, "1883"])
     def test_whole_numbers_still_work(self, port):
         assert MqttTelemetryReporter(host="broker", port=port).port == 1883
+
+
+class TestStartAfterATimedOutStop:
+    """
+    start()'s idempotency check treated any alive thread as proof reporting
+    was running. But stop() can leave a thread alive-and-not-running - it
+    timed out waiting, so the thread hasn't reached its loop condition yet -
+    and that thread's loop is already doomed (running=False, stop_event set),
+    so it will exit on its own without ever publishing again. A start() right
+    after would see the alive thread, return True, and change nothing:
+    running stays False and no new thread is spawned, so reporting is
+    silently dead despite start() reporting success.
+    """
+
+    def _stuck_reporter(self, block_for):
+        http = MagicMock()
+        started = threading.Event()
+        release = threading.Event()
+
+        def blocked(_telemetry):
+            started.set()
+            release.wait(timeout=block_for)
+            return True
+
+        http.send.side_effect = blocked
+        reporter = TelemetryReporter(EVSimulator(), interval_sec=0.01, http=http)
+        reporter.start()
+        assert started.wait(timeout=2)
+        return reporter, release
+
+    def test_start_actually_restarts_once_the_old_thread_exits(self):
+        reporter, release = self._stuck_reporter(block_for=10)
+        reporter.stop()
+        assert reporter.running is False
+        assert reporter.thread.is_alive()
+
+        threading.Timer(0.3, release.set).start()
+        reporter.http.send.side_effect = lambda _t: True
+
+        assert reporter.start() is True
+        assert reporter.running is True
+        assert reporter.thread.is_alive()
+
+        reporter.stop()
+
+    def test_start_refuses_rather_than_lying_when_still_stuck(self):
+        reporter, release = self._stuck_reporter(block_for=30)
+        reporter.stop()
+
+        assert reporter.start() is False
+        assert reporter.running is False
+
+        release.set()

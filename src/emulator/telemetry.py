@@ -527,9 +527,23 @@ class TelemetryReporter:
             return False
 
         if self.thread is not None and self.thread.is_alive():
-            # Starting again would leave the previous thread running and
-            # publishing, doubling the push rate with no way to reach it.
-            return True
+            if self.running:
+                # Starting again would leave the previous thread running and
+                # publishing, doubling the push rate with no way to reach it.
+                return True
+
+            # A previous stop() timed out and this thread has not exited its
+            # loop yet. Its own loop condition already excludes running=True,
+            # so simply falling through here would spawn a second thread
+            # alongside a first one that is not actually reporting anymore -
+            # or, before that fix existed, claim success without restarting
+            # anything, since nothing would set running back to True. Give it
+            # a bounded chance to finish, since it can only be winding down.
+            self.thread.join(timeout=2.0)
+            if self.thread.is_alive():
+                # Still stuck: refuse rather than run two threads at once.
+                return False
+            self.thread = None
 
         transports = []
         if self.http:
