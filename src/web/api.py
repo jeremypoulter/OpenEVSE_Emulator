@@ -670,8 +670,13 @@ ws.onmessage = (event) => {
             if not data or "charge_limit_soc" not in data:
                 return jsonify({"error": "charge_limit_soc required"}), 400
 
+            limit = data["charge_limit_soc"]
+            # bool is a subclass of int, so float(True) == 1.0 would otherwise
+            # accept a JSON boolean as a 1% charge limit.
+            if isinstance(limit, bool):
+                return jsonify({"error": "charge_limit_soc must be a number"}), 400
             try:
-                limit = float(data["charge_limit_soc"])
+                limit = float(limit)
             except (TypeError, ValueError):
                 return jsonify({"error": "charge_limit_soc must be a number"}), 400
 
@@ -688,8 +693,13 @@ ws.onmessage = (event) => {
             if not data or "range_km_at_full" not in data:
                 return jsonify({"error": "range_km_at_full required"}), 400
 
+            range_km = data["range_km_at_full"]
+            # Same as charge_limit_soc above: bool is a subclass of int, so a
+            # JSON boolean would otherwise coerce to 0.0 or 1.0 silently.
+            if isinstance(range_km, bool):
+                return jsonify({"error": "range_km_at_full must be a number"}), 400
             try:
-                range_km = float(data["range_km_at_full"])
+                range_km = float(range_km)
             except (TypeError, ValueError):
                 return jsonify({"error": "range_km_at_full must be a number"}), 400
 

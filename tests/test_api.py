@@ -729,6 +729,17 @@ class TestVehicleTelemetryEndpoints:
     def test_set_charge_limit_requires_field(self, api_client):
         assert api_client.post("/api/ev/charge_limit", json={}).status_code == 400
 
+    def test_set_charge_limit_rejects_bool(self, api_client, ev):
+        """
+        bool is a subclass of int, so float(True) == 1.0 would otherwise set
+        a 1% charge limit from a JSON boolean.
+        """
+        response = api_client.post(
+            "/api/ev/charge_limit", json={"charge_limit_soc": True}
+        )
+        assert response.status_code == 400
+        assert ev.charge_limit_soc != 1.0
+
     def test_set_range(self, api_client, ev):
         response = api_client.post("/api/ev/range", json={"range_km_at_full": 500})
         assert response.status_code == 200
@@ -737,6 +748,11 @@ class TestVehicleTelemetryEndpoints:
     def test_set_range_rejects_non_positive(self, api_client):
         response = api_client.post("/api/ev/range", json={"range_km_at_full": 0})
         assert response.status_code == 400
+
+    def test_set_range_rejects_bool(self, api_client, ev):
+        response = api_client.post("/api/ev/range", json={"range_km_at_full": True})
+        assert response.status_code == 400
+        assert ev.range_km_at_full != 1.0
 
     def test_reporting_status_without_a_reporter(self, api_client):
         """The endpoint must answer even when reporting is not wired up."""
