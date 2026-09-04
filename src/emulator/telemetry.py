@@ -368,7 +368,14 @@ class MqttTelemetryReporter:
             _require_text(topic, f"reporting.mqtt.topics.{field}")
 
         self.host = _require_text(host, "reporting.mqtt.host")
-        self.port = int(_require_number(port, "reporting.mqtt.port", minimum=0))
+        port_number = _require_number(port, "reporting.mqtt.port", minimum=0)
+        if not port_number.is_integer():
+            # int(1883.9) truncates to 1883 rather than rejecting it, silently
+            # connecting to a different port than whatever was actually meant.
+            raise ValueError(
+                f"reporting.mqtt.port must be a whole number, got {port!r}"
+            )
+        self.port = int(port_number)
         self.username = _optional_text(username, "reporting.mqtt.username")
         self.password = _optional_text(password, "reporting.mqtt.password")
         self.retain = _require_bool(retain, "reporting.mqtt.retain")

@@ -179,7 +179,7 @@ ws.onmessage = (event) => {
 
 Edit `config.json` to customize emulator settings:
 
-```json
+```jsonc
 {
   "serial": {
     "mode": "pty",           // "pty", "tcp", or "device"

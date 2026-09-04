@@ -777,3 +777,18 @@ class TestStopDoesNotRaceAnActivePublish:
             assert time.time() - began < 2.5
         finally:
             reporter._publish_lock.release()
+
+
+class TestMqttPortIsAWholeNumber:
+    """int(1883.9) truncates to 1883 rather than rejecting a fractional port,
+    which would silently connect to a different port than whatever was
+    actually meant."""
+
+    def test_fractional_port_is_rejected(self):
+        with pytest.raises(ValueError) as exc_info:
+            MqttTelemetryReporter(host="broker", port=1883.9)
+        assert "reporting.mqtt.port" in str(exc_info.value)
+
+    @pytest.mark.parametrize("port", [1883, 1883.0, "1883"])
+    def test_whole_numbers_still_work(self, port):
+        assert MqttTelemetryReporter(host="broker", port=port).port == 1883
