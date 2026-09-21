@@ -21,6 +21,7 @@ from emulator.config import (  # noqa: E402
     apply_env_overrides,
     load_config,
 )
+from emulator.engine import EngineError, FirmwareEngine  # noqa: E402
 from emulator.evse import EVSEStateMachine  # noqa: E402
 from emulator.ev import EVSimulator  # noqa: E402
 from emulator.rapi import RAPIHandler  # noqa: E402
@@ -84,7 +85,22 @@ class OpenEVSEEmulator:
             reporting_config = {}
             self.reporter = build_reporter(self.ev, reporting_config)
 
-        self.rapi = RAPIHandler(self.evse, self.ev)
+        # Engine mode replaces the Python state machine and RAPI handler with
+        # the real firmware. Everything else -- the EV model, the serial port,
+        # the web UI -- carries on unchanged; self.evse becomes a mirror of
+        # what the firmware reports rather than a simulation in its own right.
+        engine_config = self.config.get("engine", {})
+        self.engine = None
+        if engine_config.get("enabled") or engine_config.get("binary"):
+            self.engine = FirmwareEngine(
+                binary=engine_config["binary"],
+                board=engine_config.get("board") or None,
+                eeprom=engine_config.get("eeprom") or None,
+                wait_ms=engine_config.get("wait_ms", 10000),
+            )
+            self.rapi = self.engine
+        else:
+            self.rapi = RAPIHandler(self.evse, self.ev)
 
         serial_config = self.config["serial"]
         self.serial_port = VirtualSerialPort(
@@ -120,6 +136,18 @@ class OpenEVSEEmulator:
         print("=" * 60)
         print("OpenEVSE Emulator v1.0.0")
         print("=" * 60)
+
+        if self.engine:
+            print("\nStarting firmware engine...")
+            try:
+                self.engine.start()
+            except EngineError as e:
+                print(f"Failed to start firmware engine: {e}")
+                return False
+            board = self.engine.board
+            version = self.engine.hello.get("version", "unknown")
+            print(f"Engine: {self.engine.binary}")
+            print(f"        board={board} version={version}")
 
         # Start virtual serial port
         print("\nStarting virtual serial port...")
@@ -172,6 +200,8 @@ class OpenEVSEEmulator:
         if self.web_api.reporter:
             self.web_api.reporter.stop()
         self.serial_port.stop()
+        if self.engine:
+            self.engine.stop()
         print("Emulator stopped.")
 
     def _simulation_loop(self):
@@ -183,21 +213,36 @@ class OpenEVSEEmulator:
             delta_time = current_time - self.last_update_time
             self.last_update_time = current_time
 
-            # Update EV pilot state and get what EVSE should see
-            ev_pilot_state = self.ev.get_pilot_resistance()
+            if self.engine:
+                # The firmware decides. Present the vehicle to its inputs and
+                # adopt whatever it reports; nothing here works out what the
+                # state ought to be, which is the point of engine mode.
+                self.engine.apply_ev(self.ev)
+                self.engine.mirror_into(self.evse)
+            else:
+                # Update EV pilot state and get what EVSE should see
+                ev_pilot_state = self.ev.get_pilot_resistance()
 
-            # Update EVSE state based on EV
-            self.evse.update_state(ev_pilot_state)
+                # Update EVSE state based on EV
+                self.evse.update_state(ev_pilot_state)
 
             # Get EVSE output
             evse_status = self.evse.get_status()
             offered_current = evse_status["current_capacity"]
             voltage = evse_status["voltage"] / 1000.0  # Convert to volts
 
+            if self.engine and not self.engine.relay_closed():
+                # No contactor, no current. Without this the vehicle would go
+                # on drawing through an open relay whenever the firmware
+                # faulted, and the fault would look harmless.
+                offered_current = 0
+
             # Update EV charging based on EVSE offer
             self.ev.update_charging(offered_current, voltage, delta_time)
 
-            # Update EVSE charging metrics
+            # Update EVSE charging metrics. In engine mode the firmware meters
+            # the current itself from the CT the engine feeds it, but the
+            # emulator's own energy counters still back the web UI.
             ev_status = self.ev.get_status()
             self.evse.update_charging(ev_status["actual_charge_rate_kw"], delta_time)
 
