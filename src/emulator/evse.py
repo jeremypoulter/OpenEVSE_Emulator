@@ -73,6 +73,12 @@ class EVSEStateMachine:
             firmware_version: Firmware version string
             protocol_version: RAPI protocol version string
         """
+        self._state_change_callbacks: list[Callable] = []
+        self._lock = threading.Lock()
+        self._init_state(firmware_version, protocol_version)
+
+    def _init_state(self, firmware_version: str, protocol_version: str):
+        """Set every piece of simulated state to its power-on value."""
         self.firmware_version = firmware_version
         self.protocol_version = protocol_version
         profile = FIRMWARE_PROFILES.get(firmware_version, {})
@@ -126,12 +132,6 @@ class EVSEStateMachine:
 
         # LCD Backlight color (0=OFF, 1=RED, 2=GREEN, 3=YELLOW, 4=BLUE, 5=VIOLET, 6=TEAL, 7=WHITE)
         self._lcd_backlight_color = 2  # GREEN by default (No EV Connected)
-
-        # State change callbacks (support multiple subscribers)
-        self._state_change_callbacks: list[Callable] = []
-
-        # Thread safety
-        self._lock = threading.Lock()
 
     def set_state_change_callback(self, callback: Callable):
         """Add callback for state changes (replaces old behavior for compatibility)."""
@@ -395,6 +395,13 @@ class EVSEStateMachine:
             self._disabled = True
             self._sleep_mode = False
             self._actual_current_amps = 0.0
+
+    def restore_defaults(self):
+        """Return to power-on state (test isolation); callbacks are kept."""
+        with self._lock:
+            self._init_state(self.firmware_version, self.protocol_version)
+            if self._state_change_callbacks:
+                self._notify_state_change(self._state)
 
     def reset(self):
         """Reset the EVSE."""

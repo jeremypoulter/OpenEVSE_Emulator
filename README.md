@@ -99,6 +99,8 @@ Open your browser and navigate to `http://localhost:8080` to access the control 
 - **EVSE Controls**: Enable/disable charging, set current capacity, service level
 - **EV Controls**: Connect/disconnect vehicle, adjust battery SoC and charge limit, set max charge rate
 - **Error Simulation**: Trigger various fault conditions for testing
+- **Test Control**: `POST /api/test/reset` restores startup state and `POST /api/test/time_scale` runs
+  the simulation faster than real time, for automated end-to-end suites
 - **Serial Monitor**: View RAPI command/response traffic
 
 ### API Documentation

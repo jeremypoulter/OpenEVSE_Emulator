@@ -1041,3 +1041,49 @@ class TestReportingConfigEndpoint:
         # The real password is still in use, just not echoed.
         assert api.reporter.http.auth == ("", "hunter2")
         api.reporter.stop()
+
+
+class TestTestControlEndpoints:
+    """Test the /api/test/* endpoints used by end-to-end suites."""
+
+    def test_reset_restores_startup_state(self, api_client, evse, ev):
+        evse.trigger_error(ErrorFlags.GFCI_TRIP)
+        evse.current_capacity_amps = 12
+        ev.connected = True
+        ev.soc = 90
+
+        response = api_client.post("/api/test/reset")
+        assert response.status_code == 200
+
+        status = json.loads(api_client.get("/api/status").data)
+        assert status["evse"]["error_flags"] == 0
+        assert status["evse"]["gfci_count"] == 0
+        assert status["evse"]["state"] == 1
+        assert status["ev"]["connected"] is False
+        assert status["ev"]["soc"] == 50.0
+
+    def test_reset_runs_hook_and_resets_time_scale(self, evse, ev):
+        calls = []
+        api = WebAPI(evse, ev, reset_hook=lambda: calls.append(True))
+        api.time_scale = 60.0
+        with api.app.test_client() as client:
+            assert client.post("/api/test/reset").status_code == 200
+        assert calls == [True]
+        assert api.time_scale == 1.0
+
+    def test_reset_notifies_state_change(self, api_client, evse):
+        states = []
+        evse.add_state_change_callback(states.append)
+        api_client.post("/api/test/reset")
+        assert len(states) == 1
+
+    def test_time_scale_round_trip(self, api_client):
+        response = api_client.post("/api/test/time_scale", json={"scale": 120})
+        assert response.status_code == 200
+        assert json.loads(api_client.get("/api/test/time_scale").data) == {
+            "scale": 120.0
+        }
+
+    @pytest.mark.parametrize("body", [{}, {"scale": "fast"}, {"scale": 0}, {"scale": 9999}])
+    def test_time_scale_rejects_bad_values(self, api_client, body):
+        assert api_client.post("/api/test/time_scale", json=body).status_code == 400

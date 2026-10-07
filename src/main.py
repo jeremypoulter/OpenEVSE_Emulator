@@ -61,8 +61,7 @@ class OpenEVSEEmulator:
             firmware_version=evse_config["firmware_version"],
             protocol_version=evse_config["protocol_version"],
         )
-        self.evse.current_capacity_amps = evse_config["default_current"]
-        self.evse.service_level = evse_config["service_level"]
+        self._apply_startup_config()
 
         ev_config = self.config["ev"]
         self.ev = EVSimulator(
@@ -108,12 +107,20 @@ class OpenEVSEEmulator:
             port=web_config["port"],
             reporter=self.reporter,
             reporting_config=reporting_config,
+            reset_hook=self._apply_startup_config,
         )
 
         # Simulation state
         self.running = False
         self.simulation_thread = None
         self.last_update_time = time.time()
+
+    def _apply_startup_config(self):
+        """Apply the configured EVSE startup values (also after a test reset)."""
+        evse_config = self.config["evse"]
+        self.evse.set_firmware_profile(evse_config["firmware_version"])
+        self.evse.current_capacity_amps = evse_config["default_current"]
+        self.evse.service_level = evse_config["service_level"]
 
     def start(self):
         """Start the emulator."""
@@ -180,7 +187,7 @@ class OpenEVSEEmulator:
 
         while self.running:
             current_time = time.time()
-            delta_time = current_time - self.last_update_time
+            delta_time = (current_time - self.last_update_time) * self.web_api.time_scale
             self.last_update_time = current_time
 
             # Update EV pilot state and get what EVSE should see
