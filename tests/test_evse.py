@@ -548,3 +548,36 @@ def test_over_temperature_during_charging():
     # Should trigger over-temperature error
     if status["temperature_ds"] > 650 or status["temperature_mcp"] > 650:
         assert status["error_flags"] & ErrorFlags.OVER_TEMPERATURE
+
+
+class TestFaultedCharging:
+    """A faulted or switched-off EVSE must not let the vehicle keep charging."""
+
+    def _charging_evse(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.update_charging(7.2, 1.0)
+        assert evse.get_status()["actual_current"] > 0
+        return evse
+
+    def test_offer_is_capacity_when_healthy(self):
+        evse = EVSEStateMachine()
+        evse.current_capacity_amps = 20
+        assert evse.offered_current_amps == 20
+
+    def test_offer_is_zero_with_error(self):
+        evse = self._charging_evse()
+        evse.trigger_error(ErrorFlags.GFCI_TRIP)
+        assert evse.offered_current_amps == 0
+
+    def test_offer_is_zero_when_disabled(self):
+        evse = EVSEStateMachine()
+        evse.disable()
+        assert evse.offered_current_amps == 0
+
+    def test_current_stays_zero_after_error(self):
+        evse = self._charging_evse()
+        evse.trigger_error(ErrorFlags.GFCI_TRIP)
+        evse.update_state("C")
+        evse.update_charging(7.2, 1.0)
+        assert evse.get_status()["actual_current"] == 0

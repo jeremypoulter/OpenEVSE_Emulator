@@ -513,6 +513,14 @@ class EVSEStateMachine:
             with self._lock:
                 self._notify_state_change(new_state)
 
+    @property
+    def offered_current_amps(self) -> int:
+        """Current the vehicle may draw right now: nothing while faulted or off."""
+        with self._lock:
+            if self._error_flags or self._sleep_mode or self._disabled:
+                return 0
+            return self._current_capacity_amps
+
     def update_charging(self, actual_charge_rate_kw: float, delta_time_sec: float):
         """
         Update charging metrics.
@@ -522,7 +530,7 @@ class EVSEStateMachine:
             delta_time_sec: Time elapsed since last update
         """
         with self._lock:
-            if self._state == EVSEState.STATE_C_CHARGING:
+            if self._state == EVSEState.STATE_C_CHARGING and not self._error_flags:
                 # Calculate actual current from power
                 if self._voltage_mv > 0:
                     self._actual_current_amps = (

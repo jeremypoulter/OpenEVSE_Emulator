@@ -198,7 +198,7 @@ class OpenEVSEEmulator:
 
             # Get EVSE output
             evse_status = self.evse.get_status()
-            offered_current = evse_status["current_capacity"]
+            offered_current = self.evse.offered_current_amps
             voltage = evse_status["voltage"] / 1000.0  # Convert to volts
 
             # Update EV charging based on EVSE offer
