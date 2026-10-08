@@ -692,6 +692,10 @@ paths:
         session energy, SoC, connection, configured current and service level)
         and resets the time scale to 1. Lets one emulator serve many
         independent test scenarios without a restart.
+
+
+        Unauthenticated, like every endpoint: anyone who can reach the
+        emulator can call this. See the README's Security Considerations.
       operationId: testReset
       responses:
         '200':
