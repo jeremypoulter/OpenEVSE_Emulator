@@ -115,7 +115,7 @@ Automated test suites can drive the emulator through two endpoints in addition
 to the normal API:
 
 | Endpoint | Effect |
-|---|---|
+| --- | --- |
 | `POST /api/test/reset` | Restores the EVSE and EV to their startup state: faults and counters cleared, vehicle disconnected, vehicle SoC back to 50%, configured current and service level reapplied, and the time scale back to 1 |
 | `GET` / `POST /api/test/time_scale` | Reads or sets the simulation speed, from 1 to 3600 simulated seconds per wall-clock second |
 
