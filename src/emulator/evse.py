@@ -567,14 +567,10 @@ class EVSEStateMachine:
                 self._session_energy_wh += energy_wh
 
                 # Simulate temperature increase during charging
-                self._temperature_ds = min(
-                    OVER_TEMP_THRESHOLD,
-                    self._temperature_ds + int(delta_time_sec * 0.5),
-                )
-                self._temperature_mcp = min(
-                    OVER_TEMP_THRESHOLD,
-                    self._temperature_mcp + int(delta_time_sec * 0.5),
-                )
+                # Fractional tenths: int() here would round short steps to zero.
+                # Not clamped at the threshold, or the check below could never fire.
+                self._temperature_ds += delta_time_sec * 0.5
+                self._temperature_mcp += delta_time_sec * 0.5
 
                 # Check for over-temperature
                 if (
@@ -585,10 +581,10 @@ class EVSEStateMachine:
             else:
                 # Cool down when not charging
                 self._temperature_ds = max(
-                    AMBIENT_TEMP, self._temperature_ds - int(delta_time_sec * 2.0)
+                    AMBIENT_TEMP, self._temperature_ds - delta_time_sec * 2.0
                 )
                 self._temperature_mcp = max(
-                    AMBIENT_TEMP, self._temperature_mcp - int(delta_time_sec * 2.0)
+                    AMBIENT_TEMP, self._temperature_mcp - delta_time_sec * 2.0
                 )
 
     def get_status(self) -> dict:

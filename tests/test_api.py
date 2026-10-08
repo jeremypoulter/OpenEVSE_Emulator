@@ -1085,7 +1085,15 @@ class TestTestControlEndpoints:
         }
 
     @pytest.mark.parametrize(
-        "body", [{}, {"scale": "fast"}, {"scale": 0}, {"scale": 9999}]
+        "body",
+        [
+            {},
+            {"scale": "fast"},
+            {"scale": 0},
+            {"scale": 9999},
+            {"scale": True},
+            {"scale": False},
+        ],
     )
     def test_time_scale_rejects_bad_values(self, api_client, body) -> None:
         assert api_client.post("/api/test/time_scale", json=body).status_code == 400

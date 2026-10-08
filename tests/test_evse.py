@@ -639,3 +639,24 @@ class TestSessionAccounting:
         evse.disable()
         evse.update_charging(0, 60.0)
         assert evse.get_status()["temperature_ds"] < warm
+
+
+class TestTemperature:
+    """Short steps still heat the charger, so accelerated charging is visible."""
+
+    def test_one_second_steps_heat_the_charger(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        start = evse.get_status()["temperature_ds"]
+        for _ in range(10):
+            evse.update_charging(7.2, 1.0)
+        assert evse.get_status()["temperature_ds"] > start
+
+
+def test_overheating_triggers_over_temperature_fault():
+    """Heating past the threshold must raise the over-temperature fault."""
+    evse = EVSEStateMachine()
+    evse.update_state("C")
+    for _ in range(2000):
+        evse.update_charging(7.2, 1.0)
+    assert evse.get_status()["error_flags"] & ErrorFlags.OVER_TEMPERATURE

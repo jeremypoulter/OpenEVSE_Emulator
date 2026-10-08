@@ -112,7 +112,8 @@ class OpenEVSEEmulator:
             port=web_config["port"],
             reporter=self.reporter,
             reporting_config=reporting_config,
-            reset_hook=self._apply_startup_config,
+            reset_hook=self._on_reset,
+            scale_hook=self.catch_up,
         )
 
         # Shared with the web API so a reset never interleaves with a step
@@ -193,16 +194,27 @@ class OpenEVSEEmulator:
         update_interval = self.config["simulation"]["update_interval_ms"] / 1000.0
 
         while self.running:
-            current_time = time.time()
-            delta_time = (
-                current_time - self.last_update_time
-            ) * self.web_api.time_scale
-            self.last_update_time = current_time
-
-            self.advance(delta_time)
+            self.catch_up()
 
             # Sleep until next update
             time.sleep(update_interval)
+
+    def catch_up(self) -> None:
+        """Advance to the current wall-clock time, at the scale in effect now.
+
+        Runs under sim_lock, so the clock is sampled atomically with the scale
+        and a reset or scale change cannot interleave with it.
+        """
+        with self.sim_lock:
+            now = time.time()
+            delta = (now - self.last_update_time) * self.web_api.time_scale
+            self.last_update_time = now
+            self.advance(delta)
+
+    def _on_reset(self) -> None:
+        """Re-apply startup config after a reset, discarding time not yet simulated."""
+        self.last_update_time = time.time()
+        self._apply_startup_config()
 
     def advance(self, delta_sec: float) -> None:
         """Advance the simulation by delta_sec simulated seconds.

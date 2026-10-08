@@ -149,6 +149,7 @@ class WebAPI:
         reporter=None,
         reporting_config: dict | None = None,
         reset_hook=None,
+        scale_hook=None,
     ):
         """
         Initialize the web API.
@@ -164,6 +165,8 @@ class WebAPI:
             reset_hook: Optional callable run after POST /api/test/reset has
                 restored the built-in defaults, used to re-apply the
                 configured startup values
+            scale_hook: Optional callable run, under sim_lock, before the time
+                scale changes, so time already elapsed is charged at the old scale
         """
         self.evse = evse
         self.ev = ev
@@ -172,6 +175,7 @@ class WebAPI:
         self.reporter = reporter
         self.reporting_config = reporting_config or {}
         self.reset_hook = reset_hook
+        self.scale_hook = scale_hook
         # Simulated seconds per wall-clock second, read by the simulation loop
         self.time_scale = 1.0
         # Held by the simulation loop for each step and by a reset for its whole
@@ -915,13 +919,20 @@ ws.onmessage = (event) => {
         def set_time_scale():
             """Run the simulation faster than real time (1-3600x)."""
             data = request.get_json(silent=True) or {}
+            raw = data.get("scale")
+            # bool is an int subclass, so float(True) would otherwise pass as 1x
+            if isinstance(raw, bool):
+                return jsonify({"error": "Missing or invalid scale parameter"}), 400
             try:
-                scale = float(data["scale"])
-            except (KeyError, TypeError, ValueError):
+                scale = float(raw)
+            except (TypeError, ValueError):
                 return jsonify({"error": "Missing or invalid scale parameter"}), 400
             if not 1 <= scale <= 3600:
                 return jsonify({"error": "Scale must be between 1 and 3600"}), 400
-            self.time_scale = scale
+            with self.sim_lock:
+                if self.scale_hook is not None:
+                    self.scale_hook()
+                self.time_scale = scale
             return jsonify({"success": True, "scale": scale})
 
         # Combined status endpoint

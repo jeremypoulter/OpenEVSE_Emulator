@@ -48,3 +48,26 @@ def test_step_size_is_bounded():
 def test_steps_share_the_reset_lock(emulator):
     """Reset and the simulation take the same lock, so they cannot interleave."""
     assert emulator.sim_lock is emulator.web_api.sim_lock
+
+
+def test_catch_up_charges_elapsed_wall_time_at_current_scale():
+    """Elapsed wall time is simulated at the scale in effect when it is sampled."""
+    import time
+
+    emu = make_charging_emulator()
+    emu.web_api.time_scale = 10.0
+    emu.last_update_time = time.time() - 1.0
+    emu.catch_up()
+    assert 10 <= emu.evse.get_status()["session_time"] <= 11
+
+
+def test_reset_discards_time_not_yet_simulated():
+    """A reset must not charge the time that passed before it."""
+    import time
+
+    emu = make_charging_emulator()
+    emu.web_api.time_scale = 3600.0
+    emu.last_update_time = time.time() - 60.0
+    emu._on_reset()
+    emu.catch_up()
+    assert emu.evse.get_status()["session_time"] < 60
