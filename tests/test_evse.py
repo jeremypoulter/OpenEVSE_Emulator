@@ -581,3 +581,41 @@ class TestFaultedCharging:
         evse.update_state("C")
         evse.update_charging(7.2, 1.0)
         assert evse.get_status()["actual_current"] == 0
+
+
+class TestSimulatedTime:
+    """Session length follows the simulation clock, so a time scale is consistent."""
+
+    def test_session_time_uses_simulated_seconds(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.update_charging(7.2, 3600.0)  # one simulated hour, however fast it ran
+        assert evse.get_status()["session_time"] == 3600
+
+    def test_session_time_restarts_for_each_session(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.update_charging(7.2, 600.0)
+        evse.update_state("A")
+        evse.update_state("C")
+        evse.update_charging(7.2, 5.0)
+        assert evse.get_status()["session_time"] == 5
+
+
+class TestRestoreDefaults:
+    """Reset returns to the configured firmware, not whatever was set at runtime."""
+
+    def test_reset_keeps_configured_firmware_not_runtime_change(self):
+        from src.emulator.config import FIRMWARE_PROFILES
+
+        evse = EVSEStateMachine()
+        original = evse.firmware_version
+        other = next(v for v in FIRMWARE_PROFILES if v != original)
+        evse.set_firmware_profile(other)
+        evse.restore_defaults()
+        assert evse.firmware_version == original
+
+    def test_reset_keeps_configured_protocol_override(self):
+        evse = EVSEStateMachine(firmware_version="8.2.3", protocol_version="5.0.9")
+        evse.restore_defaults()
+        assert evse.protocol_version == "5.0.9"

@@ -7,7 +7,6 @@ charging acceptance, and connection state.
 
 import random
 import threading
-import time
 
 # Charging curve constants
 TAPER_START_SOC = 80.0  # SoC percentage where charging starts to taper
@@ -111,7 +110,9 @@ class EVSimulator:
         # Current variance
         self._current_variance_enabled = False
         self._variance_multiplier = 1.0
-        self._last_variance_time = time.time()
+        # Simulated clock (seconds of simulated time, not wall-clock time)
+        self._sim_time_sec = 0.0
+        self._last_variance_sim_sec = 0.0
 
     def restore_defaults(self):
         """Return to the constructor state (test isolation)."""
@@ -286,9 +287,9 @@ class EVSimulator:
 
     def _update_variance(self):
         """Update the variance multiplier if enough time has elapsed."""
-        now = time.time()
-        if now - self._last_variance_time >= VARIANCE_INTERVAL_SEC:
-            self._last_variance_time = now
+        now = self._sim_time_sec
+        if now - self._last_variance_sim_sec >= VARIANCE_INTERVAL_SEC:
+            self._last_variance_sim_sec = now
             if self._direct_mode:
                 # +/- 1% in direct mode
                 self._variance_multiplier = 1.0 + random.uniform(
@@ -312,6 +313,7 @@ class EVSimulator:
             delta_time_sec: Time elapsed since last update in seconds
         """
         with self._lock:
+            self._sim_time_sec += delta_time_sec
             if not self._connected or not self._requesting_charge:
                 self._actual_charge_rate_kw = 0.0
                 return

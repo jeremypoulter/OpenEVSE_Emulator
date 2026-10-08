@@ -118,7 +118,6 @@ class OpenEVSEEmulator:
     def _apply_startup_config(self):
         """Apply the configured EVSE startup values (also after a test reset)."""
         evse_config = self.config["evse"]
-        self.evse.set_firmware_profile(evse_config["firmware_version"])
         self.evse.current_capacity_amps = evse_config["default_current"]
         self.evse.service_level = evse_config["service_level"]
 

@@ -253,10 +253,8 @@ def test_variance_direct_mode():
     ev.direct_current_amps = 100.0
     ev.current_variance_enabled = True
 
-    # Force variance update by manipulating last_variance_time
-    import time
-
-    ev._last_variance_time = time.time() - 2.0
+    # Advance the simulated clock so the variance interval has elapsed
+    ev._sim_time_sec = 2.0
 
     ev.update_charging(100, 240, 1.0)
 
@@ -273,10 +271,8 @@ def test_variance_battery_mode():
     ev.soc = 50.0
     ev.current_variance_enabled = True
 
-    # Force variance update
-    import time
-
-    ev._last_variance_time = time.time() - 2.0
+    # Advance the simulated clock so the variance interval has elapsed
+    ev._sim_time_sec = 2.0
 
     ev.update_charging(32, 240, 0.001)
 

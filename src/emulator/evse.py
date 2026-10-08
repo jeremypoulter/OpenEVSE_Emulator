@@ -75,6 +75,7 @@ class EVSEStateMachine:
         """
         self._state_change_callbacks: list[Callable] = []
         self._lock = threading.Lock()
+        self._defaults = (firmware_version, protocol_version)
         self._init_state(firmware_version, protocol_version)
 
     def _init_state(self, firmware_version: str, protocol_version: str):
@@ -111,6 +112,8 @@ class EVSEStateMachine:
 
         # Session tracking
         self._session_start_time = 0
+        # Session length in simulated seconds (scaled with the simulation clock)
+        self._session_elapsed_sec = 0.0
         self._session_energy_wh = 0
         self._total_energy_wh = 0
 
@@ -399,7 +402,7 @@ class EVSEStateMachine:
     def restore_defaults(self):
         """Return to power-on state (test isolation); callbacks are kept."""
         with self._lock:
-            self._init_state(self.firmware_version, self.protocol_version)
+            self._init_state(*self._defaults)
             if self._state_change_callbacks:
                 self._notify_state_change(self._state)
 
@@ -408,6 +411,7 @@ class EVSEStateMachine:
         with self._lock:
             # Clear error counts but not flags (they need to be explicitly cleared)
             self._session_start_time = 0
+            self._session_elapsed_sec = 0.0
             self._session_energy_wh = 0
             self._actual_current_amps = 0.0
 
@@ -478,6 +482,7 @@ class EVSEStateMachine:
                     # Session ended
                     self._total_energy_wh += self._session_energy_wh
                     self._session_start_time = 0
+                    self._session_elapsed_sec = 0.0
                     self._session_energy_wh = 0
             elif ev_pilot_state == "B":
                 self._state = EVSEState.STATE_B_CONNECTED
@@ -488,6 +493,7 @@ class EVSEStateMachine:
                 self._state = EVSEState.STATE_C_CHARGING
                 if self._session_start_time == 0:
                     self._session_start_time = time.time()
+                    self._session_elapsed_sec = 0.0
             elif ev_pilot_state == "D":
                 # The EV simulator drives pilot "D" only when its diode check fails
                 # (see EVSimulator.get_pilot_resistance). Demote to connected-but-not-
@@ -537,6 +543,8 @@ class EVSEStateMachine:
                         actual_charge_rate_kw * 1000.0 * 1000.0
                     ) / self._voltage_mv
 
+                self._session_elapsed_sec += delta_time_sec
+
                 # Update energy
                 energy_wh = (actual_charge_rate_kw * delta_time_sec * 1000.0) / 3600.0
                 self._session_energy_wh += energy_wh
@@ -576,7 +584,7 @@ class EVSEStateMachine:
         with self._lock:
             elapsed_time = 0
             if self._session_start_time > 0:
-                elapsed_time = int(time.time() - self._session_start_time)
+                elapsed_time = int(self._session_elapsed_sec)
 
             # Determine current state (without calling property which would deadlock)
             current_state = self._state
