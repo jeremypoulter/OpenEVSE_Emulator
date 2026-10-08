@@ -581,6 +581,8 @@ class EVSEStateMachine:
                 ):
                     self._trigger_error_internal(ErrorFlags.OVER_TEMPERATURE)
             else:
+                # Nothing is flowing, so the measured current must say so
+                self._actual_current_amps = 0.0
                 # Cool down when not charging
                 self._temperature_ds = max(
                     AMBIENT_TEMP, self._temperature_ds - delta_time_sec * 2.0

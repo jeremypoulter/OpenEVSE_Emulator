@@ -670,3 +670,12 @@ def test_zero_power_step_does_not_heat():
     for _ in range(10):
         evse.update_charging(0.0, 1.0)
     assert evse.get_status()["temperature_ds"] <= start
+
+
+def test_zero_power_step_reports_no_current():
+    """A step that draws nothing must not keep reporting the offered current."""
+    evse = EVSEStateMachine()
+    evse.current_capacity_amps = 32
+    evse.update_state("C")
+    evse.update_charging(0.0, 1.0)
+    assert evse.get_status()["actual_current"] == 0
