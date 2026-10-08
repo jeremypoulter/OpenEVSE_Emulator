@@ -400,9 +400,17 @@ class EVSEStateMachine:
             self._actual_current_amps = 0.0
 
     def restore_defaults(self) -> None:
-        """Return to power-on state (test isolation); callbacks are kept."""
+        """Return to power-on state (test isolation); callbacks are kept.
+
+        Subscribers are not told: call announce_state() once the caller has
+        finished restoring everything, so they never see a half-reset state.
+        """
         with self._lock:
             self._init_state(*self._defaults)
+
+    def announce_state(self) -> None:
+        """Tell state-change subscribers the current state (e.g. after a reset)."""
+        with self._lock:
             if self._state_change_callbacks:
                 self._notify_state_change(self._state)
 

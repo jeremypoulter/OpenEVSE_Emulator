@@ -1089,3 +1089,19 @@ class TestTestControlEndpoints:
     )
     def test_time_scale_rejects_bad_values(self, api_client, body) -> None:
         assert api_client.post("/api/test/time_scale", json=body).status_code == 400
+
+
+class TestResetAnnouncement:
+    """Subscribers are told the state only once the reset has fully applied."""
+
+    def test_notification_sees_reapplied_configuration(self, evse, ev):
+        seen = []
+        evse.add_state_change_callback(
+            lambda _state: seen.append(evse.current_capacity_amps)
+        )
+        api = WebAPI(
+            evse, ev, reset_hook=lambda: setattr(evse, "current_capacity_amps", 20)
+        )
+        with api.app.test_client() as client:
+            assert client.post("/api/test/reset").status_code == 200
+        assert seen == [20]

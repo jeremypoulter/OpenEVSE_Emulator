@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import os
+import threading
 from typing import TYPE_CHECKING, Optional
 
 # Handle imports for both direct execution and test execution
@@ -173,6 +174,9 @@ class WebAPI:
         self.reset_hook = reset_hook
         # Simulated seconds per wall-clock second, read by the simulation loop
         self.time_scale = 1.0
+        # Held by the simulation loop for each step and by a reset for its whole
+        # sequence, so a reset is never interleaved with a simulation step.
+        self.sim_lock = threading.RLock()
 
         # Create Flask app
         self.app = Flask(
@@ -891,11 +895,14 @@ ws.onmessage = (event) => {
         @self.app.route("/api/test/reset", methods=["POST"])
         def test_reset():
             """Restore the EVSE and EV to their startup state."""
-            self.time_scale = 1.0
-            self.ev.restore_defaults()
-            self.evse.restore_defaults()
-            if self.reset_hook is not None:
-                self.reset_hook()
+            with self.sim_lock:
+                self.time_scale = 1.0
+                self.ev.restore_defaults()
+                self.evse.restore_defaults()
+                if self.reset_hook is not None:
+                    self.reset_hook()
+                # Announce only once the configured values are back in place
+                self.evse.announce_state()
             self._broadcast_status()
             return jsonify({"success": True})
 
