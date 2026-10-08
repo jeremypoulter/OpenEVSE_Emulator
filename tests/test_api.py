@@ -1046,7 +1046,7 @@ class TestReportingConfigEndpoint:
 class TestTestControlEndpoints:
     """Test the /api/test/* endpoints used by end-to-end suites."""
 
-    def test_reset_restores_startup_state(self, api_client, evse, ev):
+    def test_reset_restores_startup_state(self, api_client, evse, ev) -> None:
         evse.trigger_error(ErrorFlags.GFCI_TRIP)
         evse.current_capacity_amps = 12
         ev.connected = True
@@ -1062,7 +1062,7 @@ class TestTestControlEndpoints:
         assert status["ev"]["connected"] is False
         assert status["ev"]["soc"] == 50.0
 
-    def test_reset_runs_hook_and_resets_time_scale(self, evse, ev):
+    def test_reset_runs_hook_and_resets_time_scale(self, evse, ev) -> None:
         calls = []
         api = WebAPI(evse, ev, reset_hook=lambda: calls.append(True))
         api.time_scale = 60.0
@@ -1071,13 +1071,13 @@ class TestTestControlEndpoints:
         assert calls == [True]
         assert api.time_scale == 1.0
 
-    def test_reset_notifies_state_change(self, api_client, evse):
+    def test_reset_notifies_state_change(self, api_client, evse) -> None:
         states = []
         evse.add_state_change_callback(states.append)
         api_client.post("/api/test/reset")
         assert len(states) == 1
 
-    def test_time_scale_round_trip(self, api_client):
+    def test_time_scale_round_trip(self, api_client) -> None:
         response = api_client.post("/api/test/time_scale", json={"scale": 120})
         assert response.status_code == 200
         assert json.loads(api_client.get("/api/test/time_scale").data) == {
@@ -1087,5 +1087,5 @@ class TestTestControlEndpoints:
     @pytest.mark.parametrize(
         "body", [{}, {"scale": "fast"}, {"scale": 0}, {"scale": 9999}]
     )
-    def test_time_scale_rejects_bad_values(self, api_client, body):
+    def test_time_scale_rejects_bad_values(self, api_client, body) -> None:
         assert api_client.post("/api/test/time_scale", json=body).status_code == 400

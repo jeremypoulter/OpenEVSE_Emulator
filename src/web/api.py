@@ -901,6 +901,7 @@ ws.onmessage = (event) => {
 
         @self.app.route("/api/test/time_scale", methods=["GET"])
         def get_time_scale():
+            """Current simulation speed (simulated seconds per wall-clock second)."""
             return jsonify({"scale": self.time_scale})
 
         @self.app.route("/api/test/time_scale", methods=["POST"])

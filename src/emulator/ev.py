@@ -114,7 +114,7 @@ class EVSimulator:
         self._sim_time_sec = 0.0
         self._last_variance_sim_sec = 0.0
 
-    def restore_defaults(self):
+    def restore_defaults(self) -> None:
         """Return to the constructor state (test isolation)."""
         with self._lock:
             self._init_state(*self._defaults)
@@ -315,6 +315,11 @@ class EVSimulator:
         with self._lock:
             self._sim_time_sec += delta_time_sec
             if not self._connected or not self._requesting_charge:
+                self._actual_charge_rate_kw = 0.0
+                return
+
+            # Nothing offered (faulted, disabled or asleep): no charge in any mode
+            if offered_current_amps <= 0:
                 self._actual_charge_rate_kw = 0.0
                 return
 

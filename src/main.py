@@ -115,7 +115,7 @@ class OpenEVSEEmulator:
         self.simulation_thread = None
         self.last_update_time = time.time()
 
-    def _apply_startup_config(self):
+    def _apply_startup_config(self) -> None:
         """Apply the configured EVSE startup values (also after a test reset)."""
         evse_config = self.config["evse"]
         self.evse.current_capacity_amps = evse_config["default_current"]

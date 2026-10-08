@@ -78,7 +78,7 @@ class EVSEStateMachine:
         self._defaults = (firmware_version, protocol_version)
         self._init_state(firmware_version, protocol_version)
 
-    def _init_state(self, firmware_version: str, protocol_version: str):
+    def _init_state(self, firmware_version: str, protocol_version: str) -> None:
         """Set every piece of simulated state to its power-on value."""
         self.firmware_version = firmware_version
         self.protocol_version = protocol_version
@@ -399,7 +399,7 @@ class EVSEStateMachine:
             self._sleep_mode = False
             self._actual_current_amps = 0.0
 
-    def restore_defaults(self):
+    def restore_defaults(self) -> None:
         """Return to power-on state (test isolation); callbacks are kept."""
         with self._lock:
             self._init_state(*self._defaults)
