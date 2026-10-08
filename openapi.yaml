@@ -42,6 +42,8 @@ tags:
     description: Combined status information
   - name: Reporting
     description: Vehicle telemetry reporting to a real OpenEVSE
+  - name: Test
+    description: Test-control endpoints for automated end-to-end suites
 
 paths:
   /api/evse/status:
@@ -679,6 +681,87 @@ paths:
                       stuck_relay:
                         type: integer
                         example: 0
+
+  /api/test/reset:
+    post:
+      tags:
+        - Test
+      summary: Reset to startup state
+      description: >
+        Restores the EVSE and EV to their startup state (errors, counters,
+        session energy, SoC, connection, configured current and service level)
+        and resets the time scale to 1. Lets one emulator serve many
+        independent test scenarios without a restart.
+
+
+        Unauthenticated, like every endpoint: anyone who can reach the
+        emulator can call this. See the README's Security Considerations.
+      operationId: testReset
+      responses:
+        '200':
+          description: State restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/test/time_scale:
+    get:
+      tags:
+        - Test
+      summary: Get simulation time scale
+      operationId: getTimeScale
+      responses:
+        '200':
+          description: Current scale
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scale:
+                    type: number
+                    example: 1.0
+    post:
+      tags:
+        - Test
+      summary: Set simulation time scale
+      description: >
+        Runs the charging simulation faster than real time (simulated seconds
+        per wall-clock second) so long sessions finish quickly. Reset to 1 by
+        /api/test/reset.
+      operationId: setTimeScale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scale]
+              properties:
+                scale:
+                  type: number
+                  minimum: 1
+                  maximum: 3600
+                  example: 60
+      responses:
+        '200':
+          description: Scale applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  scale:
+                    type: number
+        '400':
+          description: Missing or out-of-range scale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/status:
     get:

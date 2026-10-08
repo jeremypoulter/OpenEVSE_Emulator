@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import os
+import threading
 from typing import TYPE_CHECKING, Optional
 
 # Handle imports for both direct execution and test execution
@@ -147,6 +148,8 @@ class WebAPI:
         port: int = 8080,
         reporter=None,
         reporting_config: dict | None = None,
+        reset_hook=None,
+        scale_hook=None,
     ):
         """
         Initialize the web API.
@@ -159,6 +162,11 @@ class WebAPI:
             reporter: Optional TelemetryReporter for the reporting endpoints
             reporting_config: The 'reporting' config the reporter was built
                 from, used as the base for runtime reconfiguration
+            reset_hook: Optional callable run after POST /api/test/reset has
+                restored the built-in defaults, used to re-apply the
+                configured startup values
+            scale_hook: Optional callable run, under sim_lock, before the time
+                scale changes, so time already elapsed is charged at the old scale
         """
         self.evse = evse
         self.ev = ev
@@ -166,6 +174,13 @@ class WebAPI:
         self.port = port
         self.reporter = reporter
         self.reporting_config = reporting_config or {}
+        self.reset_hook = reset_hook
+        self.scale_hook = scale_hook
+        # Simulated seconds per wall-clock second, read by the simulation loop
+        self.time_scale = 1.0
+        # Held by the simulation loop for each step and by a reset for its whole
+        # sequence, so a reset is never interleaved with a simulation step.
+        self.sim_lock = threading.RLock()
 
         # Create Flask app
         self.app = Flask(
@@ -879,6 +894,47 @@ ws.onmessage = (event) => {
                     },
                 }
             )
+
+        # Test-control endpoints (used by the firmware end-to-end suite)
+        @self.app.route("/api/test/reset", methods=["POST"])
+        def test_reset():
+            """Restore the EVSE and EV to their startup state."""
+            with self.sim_lock:
+                self.time_scale = 1.0
+                self.ev.restore_defaults()
+                self.evse.restore_defaults()
+                if self.reset_hook is not None:
+                    self.reset_hook()
+                # Announce only once the configured values are back in place
+                self.evse.announce_state()
+            self._broadcast_status()
+            return jsonify({"success": True})
+
+        @self.app.route("/api/test/time_scale", methods=["GET"])
+        def get_time_scale():
+            """Current simulation speed (simulated seconds per wall-clock second)."""
+            return jsonify({"scale": self.time_scale})
+
+        @self.app.route("/api/test/time_scale", methods=["POST"])
+        def set_time_scale():
+            """Run the simulation faster than real time (1-3600x)."""
+            data = request.get_json(silent=True)
+            # Only a JSON object carries a scale; arrays and strings are a bad request
+            raw = data.get("scale") if isinstance(data, dict) else None
+            # bool is an int subclass, so float(True) would otherwise pass as 1x
+            if isinstance(raw, bool):
+                return jsonify({"error": "Missing or invalid scale parameter"}), 400
+            try:
+                scale = float(raw)
+            except (TypeError, ValueError):
+                return jsonify({"error": "Missing or invalid scale parameter"}), 400
+            if not 1 <= scale <= 3600:
+                return jsonify({"error": "Scale must be between 1 and 3600"}), 400
+            with self.sim_lock:
+                if self.scale_hook is not None:
+                    self.scale_hook()
+                self.time_scale = scale
+            return jsonify({"success": True, "scale": scale})
 
         # Combined status endpoint
         @self.app.route("/api/status", methods=["GET"])

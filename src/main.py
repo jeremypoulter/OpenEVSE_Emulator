@@ -35,6 +35,11 @@ def apply_overrides(config: dict, args) -> None:
     apply_cli_overrides(config, args_dict)
 
 
+# Largest simulated step, in seconds. Bounds the pilot feedback and SoC taper
+# error at high time scales.
+SIMULATION_STEP_SEC = 1.0
+
+
 class OpenEVSEEmulator:
     """Main emulator orchestrator."""
 
@@ -61,8 +66,7 @@ class OpenEVSEEmulator:
             firmware_version=evse_config["firmware_version"],
             protocol_version=evse_config["protocol_version"],
         )
-        self.evse.current_capacity_amps = evse_config["default_current"]
-        self.evse.service_level = evse_config["service_level"]
+        self._apply_startup_config()
 
         ev_config = self.config["ev"]
         self.ev = EVSimulator(
@@ -108,12 +112,23 @@ class OpenEVSEEmulator:
             port=web_config["port"],
             reporter=self.reporter,
             reporting_config=reporting_config,
+            reset_hook=self._on_reset,
+            scale_hook=self.catch_up,
         )
+
+        # Shared with the web API so a reset never interleaves with a step
+        self.sim_lock = self.web_api.sim_lock
 
         # Simulation state
         self.running = False
         self.simulation_thread = None
         self.last_update_time = time.time()
+
+    def _apply_startup_config(self) -> None:
+        """Apply the configured EVSE startup values (also after a test reset)."""
+        evse_config = self.config["evse"]
+        self.evse.current_capacity_amps = evse_config["default_current"]
+        self.evse.service_level = evse_config["service_level"]
 
     def start(self):
         """Start the emulator."""
@@ -179,30 +194,62 @@ class OpenEVSEEmulator:
         update_interval = self.config["simulation"]["update_interval_ms"] / 1000.0
 
         while self.running:
-            current_time = time.time()
-            delta_time = current_time - self.last_update_time
-            self.last_update_time = current_time
-
-            # Update EV pilot state and get what EVSE should see
-            ev_pilot_state = self.ev.get_pilot_resistance()
-
-            # Update EVSE state based on EV
-            self.evse.update_state(ev_pilot_state)
-
-            # Get EVSE output
-            evse_status = self.evse.get_status()
-            offered_current = evse_status["current_capacity"]
-            voltage = evse_status["voltage"] / 1000.0  # Convert to volts
-
-            # Update EV charging based on EVSE offer
-            self.ev.update_charging(offered_current, voltage, delta_time)
-
-            # Update EVSE charging metrics
-            ev_status = self.ev.get_status()
-            self.evse.update_charging(ev_status["actual_charge_rate_kw"], delta_time)
+            self.catch_up()
 
             # Sleep until next update
             time.sleep(update_interval)
+
+    def catch_up(self) -> None:
+        """Advance to the current wall-clock time, at the scale in effect now.
+
+        Runs under sim_lock, so the clock is sampled atomically with the scale
+        and a reset or scale change cannot interleave with it.
+        """
+        with self.sim_lock:
+            now = time.time()
+            delta = (now - self.last_update_time) * self.web_api.time_scale
+            self.last_update_time = now
+            self.advance(delta)
+
+    def _on_reset(self) -> None:
+        """Re-apply startup config after a reset, discarding time not yet simulated."""
+        self.last_update_time = time.time()
+        self._apply_startup_config()
+
+    def advance(self, delta_sec: float) -> None:
+        """Advance the simulation by delta_sec simulated seconds.
+
+        Split into steps of at most SIMULATION_STEP_SEC so a large time scale
+        still runs the pilot feedback and the SoC taper at their normal rate.
+        """
+        # Held for the whole advance, not per step: a reset must not land between
+        # the steps of one advance and leave the rest of it running on the reset state.
+        with self.sim_lock:
+            remaining = delta_sec
+            while remaining > 0:
+                step = min(remaining, SIMULATION_STEP_SEC)
+                remaining -= step
+                self._step(step)
+
+    def _step(self, delta_time: float) -> None:
+        """Run one simulation step of delta_time simulated seconds."""
+        # Update EV pilot state and get what EVSE should see
+        ev_pilot_state = self.ev.get_pilot_resistance()
+
+        # Update EVSE state based on EV
+        self.evse.update_state(ev_pilot_state)
+
+        # Get EVSE output
+        evse_status = self.evse.get_status()
+        offered_current = self.evse.offered_current_amps
+        voltage = evse_status["voltage"] / 1000.0  # Convert to volts
+
+        # Update EV charging based on EVSE offer
+        self.ev.update_charging(offered_current, voltage, delta_time)
+
+        # Update EVSE charging metrics
+        ev_status = self.ev.get_status()
+        self.evse.update_charging(ev_status["actual_charge_rate_kw"], delta_time)
 
     def _handle_serial_data(self, data: str) -> str:
         """

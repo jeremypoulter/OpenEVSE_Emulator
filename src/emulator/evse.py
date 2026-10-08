@@ -73,6 +73,13 @@ class EVSEStateMachine:
             firmware_version: Firmware version string
             protocol_version: RAPI protocol version string
         """
+        self._state_change_callbacks: list[Callable] = []
+        self._lock = threading.Lock()
+        self._defaults = (firmware_version, protocol_version)
+        self._init_state(firmware_version, protocol_version)
+
+    def _init_state(self, firmware_version: str, protocol_version: str) -> None:
+        """Set every piece of simulated state to its power-on value."""
         self.firmware_version = firmware_version
         self.protocol_version = protocol_version
         profile = FIRMWARE_PROFILES.get(firmware_version, {})
@@ -105,6 +112,8 @@ class EVSEStateMachine:
 
         # Session tracking
         self._session_start_time = 0
+        # Session length in simulated seconds (scaled with the simulation clock)
+        self._session_elapsed_sec = 0.0
         self._session_energy_wh = 0
         self._total_energy_wh = 0
 
@@ -126,12 +135,6 @@ class EVSEStateMachine:
 
         # LCD Backlight color (0=OFF, 1=RED, 2=GREEN, 3=YELLOW, 4=BLUE, 5=VIOLET, 6=TEAL, 7=WHITE)
         self._lcd_backlight_color = 2  # GREEN by default (No EV Connected)
-
-        # State change callbacks (support multiple subscribers)
-        self._state_change_callbacks: list[Callable] = []
-
-        # Thread safety
-        self._lock = threading.Lock()
 
     def set_state_change_callback(self, callback: Callable):
         """Add callback for state changes (replaces old behavior for compatibility)."""
@@ -396,11 +399,27 @@ class EVSEStateMachine:
             self._sleep_mode = False
             self._actual_current_amps = 0.0
 
+    def restore_defaults(self) -> None:
+        """Return to power-on state (test isolation); callbacks are kept.
+
+        Subscribers are not told: call announce_state() once the caller has
+        finished restoring everything, so they never see a half-reset state.
+        """
+        with self._lock:
+            self._init_state(*self._defaults)
+
+    def announce_state(self) -> None:
+        """Tell state-change subscribers the current state (e.g. after a reset)."""
+        with self._lock:
+            if self._state_change_callbacks:
+                self._notify_state_change(self._state)
+
     def reset(self):
         """Reset the EVSE."""
         with self._lock:
             # Clear error counts but not flags (they need to be explicitly cleared)
             self._session_start_time = 0
+            self._session_elapsed_sec = 0.0
             self._session_energy_wh = 0
             self._actual_current_amps = 0.0
 
@@ -471,6 +490,7 @@ class EVSEStateMachine:
                     # Session ended
                     self._total_energy_wh += self._session_energy_wh
                     self._session_start_time = 0
+                    self._session_elapsed_sec = 0.0
                     self._session_energy_wh = 0
             elif ev_pilot_state == "B":
                 self._state = EVSEState.STATE_B_CONNECTED
@@ -481,6 +501,7 @@ class EVSEStateMachine:
                 self._state = EVSEState.STATE_C_CHARGING
                 if self._session_start_time == 0:
                     self._session_start_time = time.time()
+                    self._session_elapsed_sec = 0.0
             elif ev_pilot_state == "D":
                 # The EV simulator drives pilot "D" only when its diode check fails
                 # (see EVSimulator.get_pilot_resistance). Demote to connected-but-not-
@@ -506,6 +527,14 @@ class EVSEStateMachine:
             with self._lock:
                 self._notify_state_change(new_state)
 
+    @property
+    def offered_current_amps(self) -> int:
+        """Current the vehicle may draw right now: nothing while faulted or off."""
+        with self._lock:
+            if self._error_flags or self._sleep_mode or self._disabled:
+                return 0
+            return self._current_capacity_amps
+
     def update_charging(self, actual_charge_rate_kw: float, delta_time_sec: float):
         """
         Update charging metrics.
@@ -515,7 +544,20 @@ class EVSEStateMachine:
             delta_time_sec: Time elapsed since last update
         """
         with self._lock:
-            if self._state == EVSEState.STATE_C_CHARGING:
+            # A session lasts from the vehicle's first request until it leaves,
+            # whatever the state in between (including faults and disabled).
+            if self._session_start_time > 0:
+                self._session_elapsed_sec += delta_time_sec
+
+            # A step with no power (for example the car reached its limit) is not charging
+            charging = (
+                self._state == EVSEState.STATE_C_CHARGING
+                and not self._error_flags
+                and not self._sleep_mode
+                and not self._disabled
+                and actual_charge_rate_kw > 0
+            )
+            if charging:
                 # Calculate actual current from power
                 if self._voltage_mv > 0:
                     self._actual_current_amps = (
@@ -527,14 +569,10 @@ class EVSEStateMachine:
                 self._session_energy_wh += energy_wh
 
                 # Simulate temperature increase during charging
-                self._temperature_ds = min(
-                    OVER_TEMP_THRESHOLD,
-                    self._temperature_ds + int(delta_time_sec * 0.5),
-                )
-                self._temperature_mcp = min(
-                    OVER_TEMP_THRESHOLD,
-                    self._temperature_mcp + int(delta_time_sec * 0.5),
-                )
+                # Fractional tenths: int() here would round short steps to zero.
+                # Not clamped at the threshold, or the check below could never fire.
+                self._temperature_ds += delta_time_sec * 0.5
+                self._temperature_mcp += delta_time_sec * 0.5
 
                 # Check for over-temperature
                 if (
@@ -543,12 +581,14 @@ class EVSEStateMachine:
                 ):
                     self._trigger_error_internal(ErrorFlags.OVER_TEMPERATURE)
             else:
+                # Nothing is flowing, so the measured current must say so
+                self._actual_current_amps = 0.0
                 # Cool down when not charging
                 self._temperature_ds = max(
-                    AMBIENT_TEMP, self._temperature_ds - int(delta_time_sec * 2.0)
+                    AMBIENT_TEMP, self._temperature_ds - delta_time_sec * 2.0
                 )
                 self._temperature_mcp = max(
-                    AMBIENT_TEMP, self._temperature_mcp - int(delta_time_sec * 2.0)
+                    AMBIENT_TEMP, self._temperature_mcp - delta_time_sec * 2.0
                 )
 
     def get_status(self) -> dict:
@@ -561,7 +601,7 @@ class EVSEStateMachine:
         with self._lock:
             elapsed_time = 0
             if self._session_start_time > 0:
-                elapsed_time = int(time.time() - self._session_start_time)
+                elapsed_time = int(self._session_elapsed_sec)
 
             # Determine current state (without calling property which would deadlock)
             current_state = self._state

@@ -7,7 +7,6 @@ charging acceptance, and connection state.
 
 import random
 import threading
-import time
 
 # Charging curve constants
 TAPER_START_SOC = 80.0  # SoC percentage where charging starts to taper
@@ -69,6 +68,23 @@ class EVSimulator:
             charge_limit_soc: SoC percentage at which the vehicle stops
                 charging (100 = charge to full)
         """
+        self._defaults = (
+            battery_capacity_kwh,
+            max_charge_rate_kw,
+            range_km_at_full,
+            charge_limit_soc,
+        )
+        self._lock = threading.Lock()
+        self._init_state(*self._defaults)
+
+    def _init_state(
+        self,
+        battery_capacity_kwh,
+        max_charge_rate_kw,
+        range_km_at_full,
+        charge_limit_soc,
+    ):
+        """Set all simulated vehicle state to its initial value."""
         self.battery_capacity_kwh = battery_capacity_kwh
         self.max_charge_rate_kw = max_charge_rate_kw
         self._range_km_at_full = max(0.0, _as_float(range_km_at_full))
@@ -94,10 +110,14 @@ class EVSimulator:
         # Current variance
         self._current_variance_enabled = False
         self._variance_multiplier = 1.0
-        self._last_variance_time = time.time()
+        # Simulated clock (seconds of simulated time, not wall-clock time)
+        self._sim_time_sec = 0.0
+        self._last_variance_sim_sec = 0.0
 
-        # Thread safety
-        self._lock = threading.Lock()
+    def restore_defaults(self) -> None:
+        """Return to the constructor state (test isolation)."""
+        with self._lock:
+            self._init_state(*self._defaults)
 
     @property
     def connected(self) -> bool:
@@ -267,9 +287,9 @@ class EVSimulator:
 
     def _update_variance(self):
         """Update the variance multiplier if enough time has elapsed."""
-        now = time.time()
-        if now - self._last_variance_time >= VARIANCE_INTERVAL_SEC:
-            self._last_variance_time = now
+        now = self._sim_time_sec
+        if now - self._last_variance_sim_sec >= VARIANCE_INTERVAL_SEC:
+            self._last_variance_sim_sec = now
             if self._direct_mode:
                 # +/- 1% in direct mode
                 self._variance_multiplier = 1.0 + random.uniform(
@@ -293,7 +313,13 @@ class EVSimulator:
             delta_time_sec: Time elapsed since last update in seconds
         """
         with self._lock:
+            self._sim_time_sec += delta_time_sec
             if not self._connected or not self._requesting_charge:
+                self._actual_charge_rate_kw = 0.0
+                return
+
+            # Nothing offered (faulted, disabled or asleep): no charge in any mode
+            if offered_current_amps <= 0:
                 self._actual_charge_rate_kw = 0.0
                 return
 
@@ -305,6 +331,9 @@ class EVSimulator:
                 if self._current_variance_enabled:
                     self._update_variance()
                     actual_amps *= self._variance_multiplier
+
+                # The EVSE's offer is the pilot limit: never draw more than that
+                actual_amps = min(actual_amps, offered_current_amps)
 
                 self._actual_charge_rate_kw = (actual_amps * voltage) / 1000.0
                 return
