@@ -332,6 +332,9 @@ class EVSimulator:
                     self._update_variance()
                     actual_amps *= self._variance_multiplier
 
+                # The EVSE's offer is the pilot limit: never draw more than that
+                actual_amps = min(actual_amps, offered_current_amps)
+
                 self._actual_charge_rate_kw = (actual_amps * voltage) / 1000.0
                 return
 

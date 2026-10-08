@@ -473,3 +473,16 @@ def test_direct_mode_stops_when_nothing_offered():
     ev.update_charging(0, 240, 1.0)
 
     assert ev.actual_charge_rate_kw == 0.0
+
+
+def test_direct_mode_respects_reduced_offer():
+    """A reduced EVSE offer caps a vehicle in direct mode, not just a fault."""
+    ev = EVSimulator()
+    ev.connected = True
+    ev.requesting_charge = True
+    ev.direct_mode = True
+    ev.direct_current_amps = 20.0
+
+    ev.update_charging(6, 240, 1.0)
+
+    assert ev.actual_charge_rate_kw == pytest.approx(1.44)
