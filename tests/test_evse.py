@@ -660,3 +660,13 @@ def test_overheating_triggers_over_temperature_fault():
     for _ in range(2000):
         evse.update_charging(7.2, 1.0)
     assert evse.get_status()["error_flags"] & ErrorFlags.OVER_TEMPERATURE
+
+
+def test_zero_power_step_does_not_heat():
+    """A step where the car draws nothing (say, at its charge limit) adds no heat."""
+    evse = EVSEStateMachine()
+    evse.update_state("C")
+    start = evse.get_status()["temperature_ds"]
+    for _ in range(10):
+        evse.update_charging(0.0, 1.0)
+    assert evse.get_status()["temperature_ds"] <= start

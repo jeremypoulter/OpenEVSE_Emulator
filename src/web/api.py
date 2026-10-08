@@ -918,8 +918,9 @@ ws.onmessage = (event) => {
         @self.app.route("/api/test/time_scale", methods=["POST"])
         def set_time_scale():
             """Run the simulation faster than real time (1-3600x)."""
-            data = request.get_json(silent=True) or {}
-            raw = data.get("scale")
+            data = request.get_json(silent=True)
+            # Only a JSON object carries a scale; arrays and strings are a bad request
+            raw = data.get("scale") if isinstance(data, dict) else None
             # bool is an int subclass, so float(True) would otherwise pass as 1x
             if isinstance(raw, bool):
                 return jsonify({"error": "Missing or invalid scale parameter"}), 400

@@ -549,11 +549,13 @@ class EVSEStateMachine:
             if self._session_start_time > 0:
                 self._session_elapsed_sec += delta_time_sec
 
+            # A step with no power (for example the car reached its limit) is not charging
             charging = (
                 self._state == EVSEState.STATE_C_CHARGING
                 and not self._error_flags
                 and not self._sleep_mode
                 and not self._disabled
+                and actual_charge_rate_kw > 0
             )
             if charging:
                 # Calculate actual current from power

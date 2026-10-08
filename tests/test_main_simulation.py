@@ -61,13 +61,16 @@ def test_catch_up_charges_elapsed_wall_time_at_current_scale():
     assert 10 <= emu.evse.get_status()["session_time"] <= 11
 
 
-def test_reset_discards_time_not_yet_simulated():
+def test_reset_discards_time_not_yet_simulated(monkeypatch):
     """A reset must not charge the time that passed before it."""
-    import time
+    import src.main as main_module
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(main_module.time, "time", lambda: clock["now"])
 
     emu = make_charging_emulator()
     emu.web_api.time_scale = 3600.0
-    emu.last_update_time = time.time() - 60.0
+    emu.last_update_time = clock["now"] - 60.0  # a minute passed before the reset
     emu._on_reset()
-    emu.catch_up()
-    assert emu.evse.get_status()["session_time"] < 60
+    emu.catch_up()  # no wall-clock time has passed since the reset
+    assert emu.evse.get_status()["session_time"] == 0

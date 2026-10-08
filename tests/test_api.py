@@ -1093,6 +1093,8 @@ class TestTestControlEndpoints:
             {"scale": 9999},
             {"scale": True},
             {"scale": False},
+            [1, 2],
+            "fast",
         ],
     )
     def test_time_scale_rejects_bad_values(self, api_client, body) -> None:
