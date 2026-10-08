@@ -619,3 +619,23 @@ class TestRestoreDefaults:
         evse = EVSEStateMachine(firmware_version="8.2.3", protocol_version="5.0.9")
         evse.restore_defaults()
         assert evse.protocol_version == "5.0.9"
+
+
+class TestSessionAccounting:
+    """The session clock runs for the whole session; charging-only metrics do not."""
+
+    def test_session_clock_runs_while_faulted(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.trigger_error(ErrorFlags.GFCI_TRIP)
+        evse.update_charging(0, 600.0)
+        assert evse.get_status()["session_time"] == 600
+
+    def test_disabled_charger_does_not_heat_up(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.update_charging(7.2, 60.0)
+        warm = evse.get_status()["temperature_ds"]
+        evse.disable()
+        evse.update_charging(0, 60.0)
+        assert evse.get_status()["temperature_ds"] < warm

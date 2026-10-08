@@ -544,14 +544,23 @@ class EVSEStateMachine:
             delta_time_sec: Time elapsed since last update
         """
         with self._lock:
-            if self._state == EVSEState.STATE_C_CHARGING and not self._error_flags:
+            # A session lasts from the vehicle's first request until it leaves,
+            # whatever the state in between (including faults and disabled).
+            if self._session_start_time > 0:
+                self._session_elapsed_sec += delta_time_sec
+
+            charging = (
+                self._state == EVSEState.STATE_C_CHARGING
+                and not self._error_flags
+                and not self._sleep_mode
+                and not self._disabled
+            )
+            if charging:
                 # Calculate actual current from power
                 if self._voltage_mv > 0:
                     self._actual_current_amps = (
                         actual_charge_rate_kw * 1000.0 * 1000.0
                     ) / self._voltage_mv
-
-                self._session_elapsed_sec += delta_time_sec
 
                 # Update energy
                 energy_wh = (actual_charge_rate_kw * delta_time_sec * 1000.0) / 3600.0

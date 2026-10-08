@@ -210,11 +210,13 @@ class OpenEVSEEmulator:
         Split into steps of at most SIMULATION_STEP_SEC so a large time scale
         still runs the pilot feedback and the SoC taper at their normal rate.
         """
-        remaining = delta_sec
-        while remaining > 0:
-            step = min(remaining, SIMULATION_STEP_SEC)
-            remaining -= step
-            with self.sim_lock:
+        # Held for the whole advance, not per step: a reset must not land between
+        # the steps of one advance and leave the rest of it running on the reset state.
+        with self.sim_lock:
+            remaining = delta_sec
+            while remaining > 0:
+                step = min(remaining, SIMULATION_STEP_SEC)
+                remaining -= step
                 self._step(step)
 
     def _step(self, delta_time: float) -> None:
