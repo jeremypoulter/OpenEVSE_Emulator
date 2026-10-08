@@ -69,11 +69,22 @@ class EVSimulator:
             charge_limit_soc: SoC percentage at which the vehicle stops
                 charging (100 = charge to full)
         """
-        self._defaults = (battery_capacity_kwh, max_charge_rate_kw, range_km_at_full, charge_limit_soc)
+        self._defaults = (
+            battery_capacity_kwh,
+            max_charge_rate_kw,
+            range_km_at_full,
+            charge_limit_soc,
+        )
         self._lock = threading.Lock()
         self._init_state(*self._defaults)
 
-    def _init_state(self, battery_capacity_kwh, max_charge_rate_kw, range_km_at_full, charge_limit_soc):
+    def _init_state(
+        self,
+        battery_capacity_kwh,
+        max_charge_rate_kw,
+        range_km_at_full,
+        charge_limit_soc,
+    ):
         """Set all simulated vehicle state to its initial value."""
         self.battery_capacity_kwh = battery_capacity_kwh
         self.max_charge_rate_kw = max_charge_rate_kw

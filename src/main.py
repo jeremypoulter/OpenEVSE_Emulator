@@ -187,7 +187,9 @@ class OpenEVSEEmulator:
 
         while self.running:
             current_time = time.time()
-            delta_time = (current_time - self.last_update_time) * self.web_api.time_scale
+            delta_time = (
+                current_time - self.last_update_time
+            ) * self.web_api.time_scale
             self.last_update_time = current_time
 
             # Update EV pilot state and get what EVSE should see
