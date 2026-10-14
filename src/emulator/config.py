@@ -80,6 +80,16 @@ def default_config() -> dict:
             "temperature_simulation": True,
             "realistic_charge_curve": True,
         },
+        # Engine mode: run the real safety firmware instead of emulating it.
+        # Off by default -- it needs a natively-built binary from the
+        # open_evse repository, and the Python EVSE is the zero-setup path.
+        "engine": {
+            "enabled": False,
+            "binary": "",
+            "board": "",
+            "eeprom": "",
+            "wait_ms": 10000,
+        },
     }
 
 
@@ -293,6 +303,9 @@ CLI_OVERRIDE_PATHS = {
     "ev_max_charge_rate_kw": "ev.max_charge_rate_kw",
     "ev_range_km_at_full": "ev.range_km_at_full",
     "ev_charge_limit_soc": "ev.charge_limit_soc",
+    "engine_binary": "engine.binary",
+    "engine_board": "engine.board",
+    "engine_eeprom": "engine.eeprom",
     "reporting_interval": "reporting.interval_sec",
     "reporting_http_enabled": "reporting.http.enabled",
     "reporting_mqtt_enabled": "reporting.mqtt.enabled",

@@ -551,6 +551,38 @@ class EVSEStateMachine:
                     AMBIENT_TEMP, self._temperature_mcp - int(delta_time_sec * 2.0)
                 )
 
+    # -- engine mode -------------------------------------------------------
+    #
+    # In engine mode the real firmware owns the state machine, and these push
+    # what it reported into this object so the web UI and API report the
+    # firmware's decisions rather than a parallel simulation of them. They
+    # deliberately bypass the transition logic below: there is nothing to
+    # decide here any more, only something to reflect.
+
+    def set_engine_state(self, state_code: int) -> None:
+        """Adopt an EVSE state reported by the firmware over RAPI."""
+        try:
+            state = EVSEState(state_code)
+        except ValueError:
+            return  # a state this emulator does not model; leave the last one
+        with self._lock:
+            if self._state == state:
+                return
+            self._state = state
+            # The firmware is the authority in engine mode, so its state must
+            # not be masked by flags this object set for itself.
+            self._error_flags = 0
+            self._disabled = state == EVSEState.STATE_DISABLED
+            self._sleep_mode = state == EVSEState.STATE_SLEEP
+            # n.b. called with the lock held: _notify_state_change releases and
+            # reacquires it around the callbacks itself.
+            self._notify_state_change(state)
+
+    def set_engine_capacity(self, amps: int) -> None:
+        """Adopt the ampacity the firmware is advertising to the vehicle."""
+        with self._lock:
+            self._current_capacity_amps = amps
+
     def get_status(self) -> dict:
         """
         Get comprehensive EVSE status.
