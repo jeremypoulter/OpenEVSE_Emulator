@@ -99,6 +99,8 @@ Open your browser and navigate to `http://localhost:8080` to access the control 
 - **EVSE Controls**: Enable/disable charging, set current capacity, service level
 - **EV Controls**: Connect/disconnect vehicle, adjust battery SoC and charge limit, set max charge rate
 - **Error Simulation**: Trigger various fault conditions for testing
+- **Test Control**: restore startup state and run the simulation faster than real
+  time, for automated end-to-end suites (see [Test control](#test-control))
 - **Serial Monitor**: View RAPI command/response traffic
 
 ### API Documentation
@@ -106,6 +108,31 @@ Open your browser and navigate to `http://localhost:8080` to access the control 
 Interactive API documentation is available at `http://localhost:8080/api/docs`
 using Swagger UI. The OpenAPI 3.0 specification can be accessed at
 `http://localhost:8080/api/openapi.yaml`.
+
+### Test control
+
+Automated test suites can drive the emulator through two endpoints in addition
+to the normal API:
+
+| Endpoint | Effect |
+| --- | --- |
+| `POST /api/test/reset` | Restores the EVSE and EV to their startup state: faults and counters cleared, vehicle disconnected, vehicle SoC back to 50%, configured current and service level reapplied, and the time scale back to 1 |
+| `GET` / `POST /api/test/time_scale` | Reads or sets the simulation speed, from 1 to 3600 simulated seconds per wall-clock second |
+
+```bash
+curl -X POST http://localhost:8080/api/test/time_scale \
+  -H 'Content-Type: application/json' -d '{"scale": 60}'
+curl -X POST http://localhost:8080/api/test/reset
+```
+
+The time scale applies to the emulator's own simulation: the vehicle's charging,
+the EVSE's session time and its charging energy and temperature. It does not
+change the clocks of any firmware connected to the emulator, which keep their
+own time.
+
+These endpoints have **no authentication**, like the rest of the API. Anyone who
+can reach the emulator can reset it or change its speed, so keep it on a trusted
+network or bind it to `127.0.0.1` (see [Security Considerations](#security-considerations)).
 
 ### REST API
 
@@ -574,6 +601,9 @@ To test the emulator with actual OpenEVSE WiFi firmware:
   choosing and make it issue requests there. That is a wider reach than the rest
   of the API, which only affects local simulation state. Keep the emulator off
   untrusted networks, or bind it to `127.0.0.1`, if that matters to you.
+- **Test Control Endpoints**: `/api/test/reset` and `/api/test/time_scale` are
+  unauthenticated and can reset all simulated state or change the simulation
+  speed. Like the rest of the API, they are for trusted networks only.
 - **Development Use**: This emulator is intended for development and testing purposes only.
 
 ## Documentation
