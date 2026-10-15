@@ -108,6 +108,7 @@ class OpenEVSEEmulator:
             port=web_config["port"],
             reporter=self.reporter,
             reporting_config=reporting_config,
+            heartbeat_status=self.rapi.heartbeat_status,
         )
 
         # Simulation state

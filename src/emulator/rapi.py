@@ -4,6 +4,8 @@ RAPI (Remote API) protocol handler.
 Implements the OpenEVSE RAPI command protocol for serial communication.
 """
 
+import os
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -69,6 +71,8 @@ class RAPIHandler:
             "FB": self._cmd_lcd_backlight,
             "SR": self._cmd_set_relay,
             "GR": self._cmd_get_relay,
+            "FH": self._cmd_relay_health_reset,
+            "FK": self._cmd_stuck_relay_recovery,
         }
 
         # Ammeter calibration settings
@@ -82,6 +86,19 @@ class RAPIHandler:
         self.heartbeat_interval = 0
         self.heartbeat_current_limit = 0
         self.heartbeat_missed = False
+        # Controller-side supervision timer. Evaluated only when the controller
+        # is free to run its loop (see _supervise), never on a timer thread, so
+        # a long $FK holds the timer off exactly as the real controller's loop
+        # does.
+        self._hb_last_pulse = time.monotonic()
+        self._hb_pulses = 0
+        self._hb_trips = 0
+        self._hb_acks = 0
+        self._busy_in_fk = False
+
+        # How long $FK keeps the controller busy. The real stuck-relay cycle
+        # runs for roughly 30 s; OPENEVSE_EMU_FK_SECONDS shortens it for tests.
+        self.stuck_recovery_seconds = float(os.environ.get("OPENEVSE_EMU_FK_SECONDS", "30"))
 
     @staticmethod
     def _calculate_checksum(data: str) -> str:
@@ -208,6 +225,9 @@ class RAPIHandler:
         if self.evse.echo_enabled:
             echo_cmd = RAPI_SOC + RAPI_SOC.join([cmd_code] + params)
             echo = self._append_checksum(echo_cmd) + RAPI_LINE_ENDING
+
+        # The controller services its supervision timer between commands.
+        self._supervise()
 
         # Look up command handler
         handler = self.commands.get(cmd_code)
@@ -402,15 +422,19 @@ class RAPIHandler:
         """
         if not params:
             # Heartbeat pulse with no parameters
-            response = (
-                f"{RAPI_OK_RESPONSE} {self.heartbeat_interval} "
-                f"{self.heartbeat_current_limit}"
-            )
+            self._hb_pulses += 1
             if self.heartbeat_missed:
-                response += " 2"  # Missed pulse status
-            else:
-                response += " 0"  # No missed pulse
-            return response
+                # A missed pulse is outstanding until it is acknowledged with
+                # $SY 165. The controller NAKs further pulses until then, and
+                # they do not restart the supervision timer. The firmware's
+                # heartbeatPulse() answers that NAK with the acknowledgement.
+                return RAPI_ERROR_RESPONSE
+            if self.heartbeat_interval > 0:
+                self._hb_last_pulse = time.monotonic()
+            return (
+                f"{RAPI_OK_RESPONSE} {self.heartbeat_interval} "
+                f"{self.heartbeat_current_limit} 0"  # No missed pulse
+            )
 
         try:
             first_param = int(params[0])
@@ -418,11 +442,16 @@ class RAPIHandler:
             if first_param == 0xA5:  # 0xA5 == 165
                 # Acknowledge missed pulse
                 self.heartbeat_missed = False
+                self._hb_acks += 1
+                # Supervision restarts from the acknowledgement, not from the
+                # pulse that was missed.
+                self._hb_last_pulse = time.monotonic()
                 return RAPI_OK_RESPONSE
             elif len(params) >= 2:
                 # Set heartbeat interval and current limit
                 self.heartbeat_interval = first_param
                 self.heartbeat_current_limit = int(params[1])
+                self._hb_last_pulse = time.monotonic()
                 response = (
                     f"{RAPI_OK_RESPONSE} {self.heartbeat_interval} "
                     f"{self.heartbeat_current_limit} 0"
@@ -432,6 +461,59 @@ class RAPIHandler:
                 return RAPI_ERROR_RESPONSE
         except (ValueError, IndexError):
             return RAPI_ERROR_RESPONSE
+
+    def _supervise(self) -> None:
+        """
+        Run the heartbeat supervision timer once.
+
+        Trips (sets heartbeat_missed) when no pulse has arrived within the
+        configured interval. Called before each command is handled, i.e. when
+        the controller's loop gets to run, so a pulse that is overdue because
+        the controller was busy in $FK is noticed as soon as it is free.
+        """
+        # The controller's loop is blocked for the whole $FK cycle, so its
+        # timer cannot run then; it runs again the moment $FK returns.
+        if self._busy_in_fk or self.heartbeat_interval <= 0 or self.heartbeat_missed:
+            return
+        if time.monotonic() - self._hb_last_pulse > self.heartbeat_interval:
+            self.heartbeat_missed = True
+            self._hb_trips += 1
+
+    def heartbeat_status(self) -> dict:
+        """Snapshot of heartbeat supervision, for the web API and tests."""
+        self._supervise()
+        return {
+            "interval": self.heartbeat_interval,
+            "current_limit": self.heartbeat_current_limit,
+            "missed": self.heartbeat_missed,
+            "pulses": self._hb_pulses,
+            "trips": self._hb_trips,
+            "acks": self._hb_acks,
+            "seconds_since_pulse": round(time.monotonic() - self._hb_last_pulse, 2),
+        }
+
+    def _cmd_relay_health_reset(self, params: list) -> str:
+        """$FH - Reset the relay contact-life estimate."""
+        if not self.evse.supports_feature("stuck_relay_recovery"):
+            return RAPI_ERROR_RESPONSE
+        return RAPI_OK_RESPONSE
+
+    def _cmd_stuck_relay_recovery(self, params: list) -> str:
+        """
+        $FK - Run the stuck-relay recovery cycle.
+
+        Refused ($NK) with a vehicle connected. Otherwise the controller is
+        busy in its own loop for the whole cycle: it cannot answer $SY, and
+        nothing else on the serial line is serviced until it returns.
+        """
+        if not self.evse.supports_feature("stuck_relay_recovery") or self.ev.connected:
+            return RAPI_ERROR_RESPONSE
+        self._busy_in_fk = True
+        try:
+            time.sleep(self.stuck_recovery_seconds)
+        finally:
+            self._busy_in_fk = False
+        return RAPI_OK_RESPONSE
 
     def _cmd_enable(self, params: list) -> str:
         """$FE - Enable charging (exit sleep mode)."""

@@ -1,0 +1,118 @@
+"""Heartbeat supervision and the stuck-relay commands ($FH / $FK).
+
+The controller keeps the heartbeat settings across a reboot and trips when no
+pulse arrives in time. While $FK runs the controller is busy in its own loop, so
+its supervision timer cannot run until the cycle returns. These tests pin that
+behaviour so the ESP32 firmware's heartbeat handling can be exercised against it.
+"""
+
+import threading
+import time
+
+import pytest
+
+from src.emulator.evse import EVSEStateMachine
+from src.emulator.ev import EVSimulator
+from src.emulator.rapi import RAPIHandler
+
+RECOVERY_SECONDS = 0.3
+NEW_FIRMWARE = "9.3.0"
+NEW_PROTOCOL = "6.0.0"
+
+
+def make_handler(firmware=NEW_FIRMWARE, protocol=NEW_PROTOCOL):
+    evse = EVSEStateMachine(firmware_version=firmware, protocol_version=protocol)
+    handler = RAPIHandler(evse, EVSimulator())
+    handler.stuck_recovery_seconds = RECOVERY_SECONDS
+    return handler
+
+
+@pytest.fixture
+def rapi():
+    return make_handler()
+
+
+@pytest.fixture
+def old_firmware():
+    return make_handler(firmware="8.2.3", protocol="5.0.1")
+
+
+class TestStuckRelayCommands:
+    def test_fh_is_refused_before_the_d9_firmware(self, old_firmware):
+        assert old_firmware.process_command("$FH").startswith("$NK")
+
+    def test_fk_is_refused_before_the_d9_firmware(self, old_firmware):
+        assert old_firmware.process_command("$FK").startswith("$NK")
+
+    def test_fh_is_acknowledged_on_d9(self, rapi):
+        assert rapi.process_command("$FH").startswith("$OK")
+
+    def test_fk_is_refused_with_an_ev_connected(self, rapi):
+        rapi.ev.connected = True
+        start = time.monotonic()
+        assert rapi.process_command("$FK").startswith("$NK")
+        assert time.monotonic() - start < RECOVERY_SECONDS
+
+    def test_fk_runs_for_the_recovery_duration_then_acknowledges(self, rapi):
+        start = time.monotonic()
+        response = rapi.process_command("$FK")
+        assert response.startswith("$OK")
+        assert time.monotonic() - start >= RECOVERY_SECONDS
+
+
+class TestSupervisionTrip:
+    def test_no_pulse_within_the_interval_trips(self, rapi):
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        status = rapi.heartbeat_status()
+        assert status["missed"] is True
+        assert status["trips"] == 1
+
+    def test_a_pulse_in_time_keeps_supervision_quiet(self, rapi):
+        rapi.process_command("$SY 1 6")
+        for _ in range(4):
+            time.sleep(0.4)
+            assert rapi.process_command("$SY").startswith("$OK")
+        assert rapi.heartbeat_status()["missed"] is False
+
+    def test_disabled_supervision_never_trips(self, rapi):
+        rapi.process_command("$SY 0 0")
+        time.sleep(0.2)
+        assert rapi.heartbeat_status()["missed"] is False
+
+    def test_supervision_does_not_run_while_fk_is_busy(self, rapi):
+        rapi.process_command("$SY 1 6")
+        rapi.stuck_recovery_seconds = 1.5
+        worker = threading.Thread(target=rapi.process_command, args=("$FK",))
+        worker.start()
+        time.sleep(1.2)  # longer than the interval, but the controller is busy
+        assert rapi.heartbeat_status()["missed"] is False
+        worker.join()
+        # Once $FK returns the timer runs again, and the overdue pulse trips.
+        assert rapi.heartbeat_status()["missed"] is True
+
+
+class TestMissedPulseAcknowledgement:
+    def trip(self, rapi):
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        assert rapi.heartbeat_status()["missed"] is True
+
+    def test_pulse_while_missed_is_nakd(self, rapi):
+        self.trip(rapi)
+        assert rapi.process_command("$SY").startswith("$NK")
+
+    def test_nakd_pulses_do_not_restart_the_timer(self, rapi):
+        self.trip(rapi)
+        rapi.process_command("$SY")
+        assert rapi.heartbeat_status()["missed"] is True
+        assert rapi.heartbeat_status()["trips"] == 1
+
+    def test_ack_clears_the_trip_and_restarts_supervision(self, rapi):
+        self.trip(rapi)
+        assert rapi.process_command("$SY 165").startswith("$OK")
+        status = rapi.heartbeat_status()
+        assert status["missed"] is False
+        assert status["acks"] == 1
+        # The ack restarts the timer, so an immediate pulse is accepted.
+        assert rapi.process_command("$SY").startswith("$OK")
