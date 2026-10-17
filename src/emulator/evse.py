@@ -59,6 +59,12 @@ ERROR_FLAG_TO_STATE = [
     (ErrorFlags.DIODE_CHECK_FAILED, EVSEState.STATE_DIODE_CHECK_FAILED),
 ]
 
+# The reverse of the above: which error flag a fault state reported by the
+# engine's firmware corresponds to. The firmware's own vflags bits (ECVF_*)
+# are a different bitmask, unrelated to ErrorFlags, so the state code -- not
+# vflags -- is what tells us which flag to raise.
+STATE_TO_ERROR_FLAG = {state: flag for flag, state in ERROR_FLAG_TO_STATE}
+
 
 class EVSEStateMachine:
     """Manages EVSE state and charging logic."""
@@ -570,10 +576,15 @@ class EVSEStateMachine:
                 return
             self._state = state
             # The firmware is the authority in engine mode, so its state must
-            # not be masked by flags this object set for itself.
-            self._error_flags = 0
+            # not be masked by flags this object set for itself. Re-derive
+            # error_flags from the reported state rather than clearing it
+            # outright, so API consumers still see a fault the firmware
+            # reported instead of always reading 0.
+            self._error_flags = STATE_TO_ERROR_FLAG.get(state, 0)
             self._disabled = state == EVSEState.STATE_DISABLED
             self._sleep_mode = state == EVSEState.STATE_SLEEP
+            if state != EVSEState.STATE_C_CHARGING:
+                self._actual_current_amps = 0.0
             # n.b. called with the lock held: _notify_state_change releases and
             # reacquires it around the callbacks itself.
             self._notify_state_change(state)

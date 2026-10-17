@@ -78,6 +78,7 @@ class FirmwareEngine:
         self._lock = threading.Lock()
         self._threads: list[threading.Thread] = []
         self._async_callback: Optional[Callable[[str], None]] = None
+        self._pending_async: list = []
 
         # what the firmware has told us
         self.hello: dict = {}
@@ -86,6 +87,7 @@ class FirmwareEngine:
         self.evse_state: Optional[int] = None
         self.pilot_state: Optional[int] = None
         self.current_capacity: Optional[int] = None
+        self.vflags: Optional[int] = None
         self.boot_postcode: Optional[int] = None
         self._responses: list = []
 
@@ -124,34 +126,45 @@ class FirmwareEngine:
             bufsize=0,
         )
 
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        deadline = time.time() + 10
-        while True:
-            try:
-                self.sock.connect(self.socket_path)
-                break
-            except (FileNotFoundError, ConnectionRefusedError):
-                if self.proc.poll() is not None:
-                    raise EngineError(
-                        "firmware exited immediately (code %s)" % self.proc.returncode
-                    )
-                if time.time() > deadline:
-                    raise EngineError("firmware never opened %s" % self.socket_path)
-                time.sleep(0.02)
+        try:
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            timeout_sec = self.wait_ms / 1000.0
+            deadline = time.time() + timeout_sec
+            while True:
+                try:
+                    self.sock.connect(self.socket_path)
+                    break
+                except (FileNotFoundError, ConnectionRefusedError):
+                    if self.proc.poll() is not None:
+                        raise EngineError(
+                            "firmware exited immediately (code %s)"
+                            % self.proc.returncode
+                        )
+                    if time.time() > deadline:
+                        raise EngineError("firmware never opened %s" % self.socket_path)
+                    time.sleep(0.02)
 
-        self._spawn(self._channel_loop)
-        self._spawn(self._rapi_loop)
+            self._spawn(self._channel_loop)
+            self._spawn(self._rapi_loop)
 
-        # The firmware waits for us before running its power-on self tests, so
-        # energise the board now: ground present, contactor open, pilot at
-        # +12V. Getting this in first is what lets the GFI self-test pass.
-        self._await(lambda: bool(self.hello), 10, "HELLO from firmware")
-        if self.board is None:
-            self.board = self.hello.get("board", "oev6")
-        self._send_aclines()
-        self.set_pilot_band("A")
+            # The firmware waits for us before running its power-on self
+            # tests, so energise the board now: ground present, contactor
+            # open, pilot at +12V. Getting this in first is what lets the
+            # GFI self-test pass.
+            self._await(lambda: bool(self.hello), timeout_sec, "HELLO from firmware")
+            if not self.board:
+                self.board = self.hello.get("board", "oev6")
+            if self.board not in PILOT_BANDS:
+                raise EngineError("unsupported firmware board: %r" % self.board)
+            self._send_aclines()
+            self.set_pilot_band("A")
+        except Exception:
+            self._teardown()
+            raise
 
-    def stop(self) -> None:
+    def _teardown(self) -> None:
+        """Undo whatever start() managed to bring up, so a fresh start() can
+        be tried again."""
         self._stop.set()
         if self.proc:
             self.proc.terminate()
@@ -160,18 +173,26 @@ class FirmwareEngine:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait(timeout=5)
+            self.proc = None
         if self.sock:
             try:
                 self.sock.close()
             except OSError:
                 pass
+            self.sock = None
         for t in self._threads:
             t.join(timeout=2)
+        self._threads = []
+        self._pending_async = []
         if os.path.exists(self.socket_path):
             try:
                 os.unlink(self.socket_path)
             except OSError:
                 pass
+        self._stop.clear()
+
+    def stop(self) -> None:
+        self._teardown()
 
     def _spawn(self, fn) -> None:
         t = threading.Thread(target=fn, daemon=True)
@@ -332,7 +353,9 @@ class FirmwareEngine:
             chunk = self.proc.stdout.read(1)
             if not chunk:
                 return
-            ch = chunk.decode(errors="replace")
+            # latin-1 maps every byte 0-255 to itself, unlike utf-8, which
+            # would corrupt 0xFE -- RAPI's "magic space" byte.
+            ch = chunk.decode("latin-1")
             if ch in ("\r", "\n"):
                 if buf:
                     self._on_rapi(buf)
@@ -354,6 +377,11 @@ class FirmwareEngine:
                     self.current_capacity = int(parts[3])
                 except ValueError:
                     pass
+                if len(parts) >= 5:
+                    try:
+                        self.vflags = int(parts[4], 16)
+                    except ValueError:
+                        pass
         elif parts[0] == "$AB" and len(parts) >= 2:
             with self._lock:
                 self.boot_postcode = int(parts[1], 16)
@@ -368,12 +396,21 @@ class FirmwareEngine:
         # belongs on the wire so clients see state changes as they would from
         # real hardware.
         if line.startswith("$A") or line.startswith("$WF"):
-            cb = self._async_callback
-            if cb:
-                cb(line + "\r")
+            with self._lock:
+                cb = self._async_callback
+                if cb is None:
+                    # No client wired up yet -- keep it (notably the boot
+                    # $AB) so it is not lost, and deliver it once one is.
+                    self._pending_async.append(line + "\r")
+                    return
+            cb(line + "\r")
 
     def set_async_callback(self, cb: Callable[[str], None]) -> None:
-        self._async_callback = cb
+        with self._lock:
+            self._async_callback = cb
+            pending, self._pending_async = self._pending_async, []
+        for line in pending:
+            cb(line)
 
     def process_command(self, data: str, timeout: float = 5.0) -> str:
         """Forward a RAPI command to the firmware and return its reply.
@@ -391,7 +428,7 @@ class FirmwareEngine:
         # Pass the client's framing through untouched -- it carries their
         # checksum and any sequence id, and the firmware validates both.
         try:
-            self.proc.stdin.write((cmd + "\r").encode())
+            self.proc.stdin.write((cmd + "\r").encode("latin-1"))
             self.proc.stdin.flush()
         except (BrokenPipeError, OSError):
             return "$NK^21\r"
@@ -400,7 +437,14 @@ class FirmwareEngine:
         while time.time() < deadline:
             with self._lock:
                 if len(self._responses) > before:
-                    return self._responses[-1] + "\r"
+                    # Only one command is ever in flight -- the serial port
+                    # forwards synchronously -- so the reply to this one is
+                    # the first to arrive after it was sent. Consume it (and
+                    # anything stale ahead of it) so the list cannot grow
+                    # without bound.
+                    reply = self._responses[before]
+                    del self._responses[: before + 1]
+                    return reply + "\r"
             time.sleep(0.005)
         return "$NK^21\r"
 

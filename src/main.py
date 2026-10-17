@@ -92,8 +92,14 @@ class OpenEVSEEmulator:
         engine_config = self.config.get("engine", {})
         self.engine = None
         if engine_config.get("enabled") or engine_config.get("binary"):
+            binary = engine_config.get("binary") or ""
+            if not binary:
+                raise EngineError(
+                    "engine mode requires 'engine.binary' (or --engine-binary) "
+                    "to point at a native firmware build"
+                )
             self.engine = FirmwareEngine(
-                binary=engine_config["binary"],
+                binary=binary,
                 board=engine_config.get("board") or None,
                 eeprom=engine_config.get("eeprom") or None,
                 wait_ms=engine_config.get("wait_ms", 10000),
@@ -124,6 +130,7 @@ class OpenEVSEEmulator:
             port=web_config["port"],
             reporter=self.reporter,
             reporting_config=reporting_config,
+            engine=self.engine,
         )
 
         # Simulation state
@@ -153,6 +160,9 @@ class OpenEVSEEmulator:
         print("\nStarting virtual serial port...")
         if not self.serial_port.start(self._handle_serial_data):
             print("Failed to start serial port")
+            self.serial_port.stop()
+            if self.engine:
+                self.engine.stop()
             return False
 
         print(f"Serial port: {self.serial_port.get_port_info()}")

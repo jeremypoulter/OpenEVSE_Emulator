@@ -147,6 +147,7 @@ class WebAPI:
         port: int = 8080,
         reporter=None,
         reporting_config: dict | None = None,
+        engine=None,
     ):
         """
         Initialize the web API.
@@ -159,6 +160,8 @@ class WebAPI:
             reporter: Optional TelemetryReporter for the reporting endpoints
             reporting_config: The 'reporting' config the reporter was built
                 from, used as the base for runtime reconfiguration
+            engine: Optional FirmwareEngine; when set, error simulation acts
+                on the real firmware's simulated board instead of self.evse
         """
         self.evse = evse
         self.ev = ev
@@ -166,6 +169,7 @@ class WebAPI:
         self.port = port
         self.reporter = reporter
         self.reporting_config = reporting_config or {}
+        self.engine = engine
 
         # Create Flask app
         self.app = Flask(
