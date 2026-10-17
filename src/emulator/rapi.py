@@ -526,6 +526,11 @@ class RAPIHandler:
             # Fall back to the configured limit until the trip is acknowledged.
             self.evse.set_heartbeat_limit(self.heartbeat_current_limit)
 
+    def clear_heartbeat_trip(self) -> None:
+        """Forget an outstanding trip, e.g. after the controller has been reset."""
+        with self._hb_lock:
+            self.heartbeat_missed = False
+
     def heartbeat_tick(self) -> None:
         """Run supervision on the controller's own clock, without a serial command.
 

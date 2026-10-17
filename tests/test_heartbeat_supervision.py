@@ -284,3 +284,22 @@ class TestDisablingSupervisionReleasesATrip:
         rapi.process_command("$SY 0 0")
         assert rapi.process_command("$SC 20").startswith("$OK")
         assert rapi.evse.current_capacity_amps == 20
+
+
+class TestMergedWithTestControls:
+    def test_offered_current_amps_honours_the_heartbeat_cap(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        assert rapi.evse.offered_current_amps == 6
+
+    def test_a_reset_clears_the_trip_and_the_cap(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        rapi.clear_heartbeat_trip()
+        rapi.evse.restore_defaults()
+        assert rapi.heartbeat_missed is False
+        assert rapi.evse.offered_current_amps == 32
