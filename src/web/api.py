@@ -509,9 +509,11 @@ ws.onmessage = (event) => {
         # EVSE endpoints
         @self.app.route("/api/evse/status", methods=["GET"])
         def get_evse_status():
+            # Evaluate heartbeat first so this response already shows any fallback
+            heartbeat = self.heartbeat_status() if self.heartbeat_status else None
             status = self.evse.get_status()
-            if self.heartbeat_status is not None:
-                status["heartbeat"] = self.heartbeat_status()
+            if heartbeat is not None:
+                status["heartbeat"] = heartbeat
             return jsonify(status)
 
         @self.app.route("/api/evse/version", methods=["GET"])

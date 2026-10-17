@@ -153,3 +153,38 @@ class TestFkDurationFromEnvironment:
     def test_negative_values_are_clamped_to_zero(self, monkeypatch):
         monkeypatch.setenv("OPENEVSE_EMU_FK_SECONDS", "-5")
         assert _fresh_handler().stuck_recovery_seconds == 0.0
+
+
+class TestSupervisionWithoutTraffic:
+    def test_tick_trips_and_drops_current_with_no_commands_or_status_reads(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)  # the firmware has gone quiet; nothing else calls in
+        rapi.heartbeat_tick()
+        assert rapi.heartbeat_missed is True
+        assert rapi.evse.current_capacity_amps == 6
+
+    def test_tick_does_nothing_while_fk_is_busy(self, rapi):
+        rapi.process_command("$SY 1 6")
+        rapi.stuck_recovery_seconds = 1.5
+        worker = threading.Thread(target=rapi.process_command, args=("$FK",))
+        worker.start()
+        time.sleep(1.2)
+        rapi.heartbeat_tick()
+        assert rapi.heartbeat_missed is False
+        worker.join()
+
+
+class TestStatusShowsTheFallbackOnTheTriggeringRead:
+    def test_first_status_read_after_a_timeout_reports_the_fallback(self, rapi):
+        from src.web.api import WebAPI
+
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        api = WebAPI(rapi.evse, rapi.ev, heartbeat_status=rapi.heartbeat_status)
+        api.app.config["TESTING"] = True
+        with api.app.test_client() as client:
+            body = client.get("/api/evse/status").get_json()
+        assert body["heartbeat"]["missed"] is True
+        assert body["current_capacity"] == 6

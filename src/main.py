@@ -190,6 +190,9 @@ class OpenEVSEEmulator:
             # Update EVSE state based on EV
             self.evse.update_state(ev_pilot_state)
 
+            # Supervision runs on the controller's clock, even with no traffic
+            self.rapi.heartbeat_tick()
+
             # Get EVSE output
             evse_status = self.evse.get_status()
             offered_current = evse_status["current_capacity"]

@@ -513,6 +513,15 @@ class RAPIHandler:
                 self._hb_saved_current, self.heartbeat_current_limit
             )
 
+    def heartbeat_tick(self) -> None:
+        """Run supervision on the controller's own clock, without a serial command.
+
+        Called from the simulation loop so a firmware that stops pulsing still
+        trips and drops the offered current at the deadline.
+        """
+        with self._hb_lock:
+            self._supervise()
+
     def heartbeat_status(self) -> dict:
         """Snapshot of heartbeat supervision, for the web API and tests."""
         with self._hb_lock:
