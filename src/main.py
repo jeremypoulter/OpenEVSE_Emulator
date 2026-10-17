@@ -59,7 +59,7 @@ class OpenEVSEEmulator:
         evse_config = self.config["evse"]
         self.evse = EVSEStateMachine(
             firmware_version=evse_config["firmware_version"],
-            protocol_version=evse_config["protocol_version"],
+            protocol_version=evse_config.get("protocol_version"),
         )
         self.evse.current_capacity_amps = evse_config["default_current"]
         self.evse.service_level = evse_config["service_level"]
@@ -108,6 +108,7 @@ class OpenEVSEEmulator:
             port=web_config["port"],
             reporter=self.reporter,
             reporting_config=reporting_config,
+            heartbeat_status=self.rapi.heartbeat_status,
         )
 
         # Simulation state
@@ -188,6 +189,9 @@ class OpenEVSEEmulator:
 
             # Update EVSE state based on EV
             self.evse.update_state(ev_pilot_state)
+
+            # Supervision runs on the controller's clock, even with no traffic
+            self.rapi.heartbeat_tick()
 
             # Get EVSE output
             evse_status = self.evse.get_status()

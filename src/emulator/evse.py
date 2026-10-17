@@ -64,18 +64,21 @@ class EVSEStateMachine:
     """Manages EVSE state and charging logic."""
 
     def __init__(
-        self, firmware_version: str = "8.2.3", protocol_version: str = "5.0.1"
+        self, firmware_version: str = "8.2.3", protocol_version: str | None = None
     ):
         """
         Initialize the EVSE state machine.
 
         Args:
             firmware_version: Firmware version string
-            protocol_version: RAPI protocol version string
+            protocol_version: RAPI protocol version string. When omitted, the
+                firmware profile's protocol is used (5.0.1 if it has none).
         """
-        self.firmware_version = firmware_version
-        self.protocol_version = protocol_version
         profile = FIRMWARE_PROFILES.get(firmware_version, {})
+        self.firmware_version = firmware_version
+        self.protocol_version = protocol_version or profile.get(
+            "protocol_version", "5.0.1"
+        )
         self._firmware_features = profile.get("features", {})
         self._relay_enabled = [True, True, True]
 
@@ -86,6 +89,9 @@ class EVSEStateMachine:
 
         # Current and voltage
         self._current_capacity_amps = 32
+        # Set by a heartbeat trip: the offer is capped to this until the trip is
+        # acknowledged, while the commanded capacity above is left alone.
+        self._heartbeat_limit_amps: int | None = None
         self._actual_current_amps = 0.0
         self._voltage_mv = 240000  # 240V in millivolts
 
@@ -188,15 +194,38 @@ class EVSEStateMachine:
 
     @property
     def current_capacity_amps(self) -> int:
-        """Maximum current capacity in amps."""
+        """Maximum current capacity in amps, including any heartbeat limit."""
         with self._lock:
-            return self._current_capacity_amps
+            return self._offered_current_locked()
 
     @current_capacity_amps.setter
     def current_capacity_amps(self, value: int):
         with self._lock:
             # Valid range: 6-80A for most EVSEs
             self._current_capacity_amps = max(6, min(80, value))
+
+    @property
+    def commanded_current_amps(self) -> int:
+        """The configured current set by $SC, ignoring any heartbeat limit."""
+        with self._lock:
+            return self._current_capacity_amps
+
+    @property
+    def heartbeat_limit_amps(self) -> int | None:
+        """The heartbeat fallback limit while a trip is outstanding, else None."""
+        with self._lock:
+            return self._heartbeat_limit_amps
+
+    def _offered_current_locked(self) -> int:
+        """The commanded capacity, capped by the heartbeat limit if one is set."""
+        if self._heartbeat_limit_amps is None:
+            return self._current_capacity_amps
+        return min(self._current_capacity_amps, self._heartbeat_limit_amps)
+
+    def set_heartbeat_limit(self, amps: int | None) -> None:
+        """Cap the offer to amps until cleared with None; the commanded value is kept."""
+        with self._lock:
+            self._heartbeat_limit_amps = None if amps is None else max(6, amps)
 
     @property
     def min_capacity_amps(self) -> int:
@@ -477,7 +506,7 @@ class EVSEStateMachine:
                 self._actual_current_amps = 0.0
             elif ev_pilot_state == "C":
                 if old_state != EVSEState.STATE_C_CHARGING:
-                    self._actual_current_amps = self._current_capacity_amps
+                    self._actual_current_amps = self._offered_current_locked()
                 self._state = EVSEState.STATE_C_CHARGING
                 if self._session_start_time == 0:
                     self._session_start_time = time.time()
@@ -575,7 +604,7 @@ class EVSEStateMachine:
             return {
                 "state": int(current_state),
                 "state_name": current_state.name,
-                "current_capacity": self._current_capacity_amps,
+                "current_capacity": self._offered_current_locked(),
                 "actual_current": round(self._actual_current_amps, 1),
                 "voltage": self._voltage_mv,
                 "temperature_ds": self._temperature_ds / 10.0,

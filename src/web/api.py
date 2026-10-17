@@ -147,6 +147,7 @@ class WebAPI:
         port: int = 8080,
         reporter=None,
         reporting_config: dict | None = None,
+        heartbeat_status=None,
     ):
         """
         Initialize the web API.
@@ -159,8 +160,11 @@ class WebAPI:
             reporter: Optional TelemetryReporter for the reporting endpoints
             reporting_config: The 'reporting' config the reporter was built
                 from, used as the base for runtime reconfiguration
+            heartbeat_status: Optional callable returning the RAPI heartbeat
+                supervision snapshot, added to /api/evse/status as "heartbeat"
         """
         self.evse = evse
+        self.heartbeat_status = heartbeat_status
         self.ev = ev
         self.host = host
         self.port = port
@@ -505,7 +509,12 @@ ws.onmessage = (event) => {
         # EVSE endpoints
         @self.app.route("/api/evse/status", methods=["GET"])
         def get_evse_status():
-            return jsonify(self.evse.get_status())
+            # Evaluate heartbeat first so this response already shows any fallback
+            heartbeat = self.heartbeat_status() if self.heartbeat_status else None
+            status = self.evse.get_status()
+            if heartbeat is not None:
+                status["heartbeat"] = heartbeat
+            return jsonify(status)
 
         @self.app.route("/api/evse/version", methods=["GET"])
         def get_version():
