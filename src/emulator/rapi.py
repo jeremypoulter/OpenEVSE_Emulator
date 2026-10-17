@@ -93,6 +93,9 @@ class RAPIHandler:
         # a long $FK holds the timer off exactly as the real controller's loop
         # does.
         self._hb_last_pulse = time.monotonic()
+        # Last time any pulse arrived, accepted or not. Telemetry only; supervision
+        # uses _hb_last_pulse above.
+        self._hb_last_rx = time.monotonic()
         self._hb_pulses = 0
         self._hb_trips = 0
         self._hb_acks = 0
@@ -453,6 +456,7 @@ class RAPIHandler:
         if not params:
             # Heartbeat pulse with no parameters
             self._hb_pulses += 1
+            self._hb_last_rx = time.monotonic()
             if self.heartbeat_missed:
                 # A missed pulse is outstanding until it is acknowledged with
                 # $SY 165. The controller NAKs further pulses until then, and
@@ -535,7 +539,7 @@ class RAPIHandler:
             "pulses": self._hb_pulses,
             "trips": self._hb_trips,
             "acks": self._hb_acks,
-            "seconds_since_pulse": round(time.monotonic() - self._hb_last_pulse, 2),
+            "seconds_since_pulse": round(time.monotonic() - self._hb_last_rx, 2),
         }
 
     def _cmd_relay_health_reset(self, params: list) -> str:

@@ -486,3 +486,26 @@ def test_explicit_protocol_override_wins_over_the_profile():
         protocol_version=config["evse"].get("protocol_version"),
     )
     assert evse.protocol_version == "5.0.1"
+
+
+def test_shipped_config_does_not_pin_the_protocol(tmp_path):
+    """The config file that ships with the emulator must not override the profile.
+
+    Loads the real config.json, not default_config(), so a pin in the file
+    cannot slip past the default-config test.
+    """
+    from pathlib import Path
+
+    from src.emulator.config import apply_cli_overrides, load_config
+    from src.emulator.evse import EVSEStateMachine
+
+    shipped = Path(__file__).resolve().parent.parent / "config.json"
+    config = load_config(str(shipped))
+    assert "protocol_version" not in config["evse"]
+
+    apply_cli_overrides(config, {"evse_firmware_version": "9.3.0"})
+    evse = EVSEStateMachine(
+        firmware_version=config["evse"]["firmware_version"],
+        protocol_version=config["evse"].get("protocol_version"),
+    )
+    assert evse.protocol_version == "6.0.0"

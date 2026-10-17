@@ -201,3 +201,32 @@ class TestStatusShowsTheFallbackOnTheTriggeringRead:
             body = client.get("/api/evse/status").get_json()
         assert body["heartbeat"]["missed"] is True
         assert body["current_capacity"] == 6
+
+
+class TestCurrentCannotBypassTheTripCap:
+    def test_a_32_amp_command_during_a_trip_is_still_capped_until_acknowledged(
+        self, rapi
+    ):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        assert rapi.process_command("$SC 32").startswith("$OK")
+        rapi.heartbeat_tick()
+        assert rapi.evse.current_capacity_amps == 6
+        assert rapi.heartbeat_missed is True
+
+        rapi.process_command("$SY 165")
+        assert rapi.evse.current_capacity_amps == 32
+
+
+class TestPulseTelemetry:
+    def test_rejected_pulses_still_count_as_received_traffic(self, rapi):
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        time.sleep(0.5)
+        assert rapi.process_command("$SY").startswith("$NK")
+        status = rapi.heartbeat_status()
+        assert status["missed"] is True
+        assert status["seconds_since_pulse"] < 0.2

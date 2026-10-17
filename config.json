@@ -9,7 +9,6 @@
   },
   "evse": {
     "firmware_version": "8.2.3",
-    "protocol_version": "5.0.1",
     "default_current": 32,
     "service_level": "L2",
     "gfci_self_test": true
