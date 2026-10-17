@@ -134,6 +134,19 @@ class TestOfferedCurrentFallback:
         assert rapi.process_command("$SY 165").startswith("$OK")
         assert rapi.evse.current_capacity_amps == 32
 
+    def test_a_current_command_during_a_trip_survives_the_acknowledgement(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        assert rapi.evse.current_capacity_amps == 6
+
+        assert rapi.process_command("$SC 20").startswith("$OK")
+        assert rapi.evse.current_capacity_amps == 6  # still limited while tripped
+
+        rapi.process_command("$SY 165")
+        assert rapi.evse.current_capacity_amps == 20  # the command, not the old 32
+
     def test_trip_never_raises_a_lower_offer(self, rapi):
         rapi.evse.current_capacity_amps = 6
         rapi.process_command("$SY 1 10")

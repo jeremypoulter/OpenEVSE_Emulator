@@ -100,8 +100,6 @@ class RAPIHandler:
         # Guards the heartbeat state above. Serial commands and web status
         # reads run on different threads.
         self._hb_lock = threading.RLock()
-        # Offered current to restore when a missed pulse is acknowledged.
-        self._hb_saved_current = None
 
         # How long $FK keeps the controller busy. The real stuck-relay cycle
         # runs for roughly 30 s; OPENEVSE_EMU_FK_SECONDS shortens it for tests.
@@ -246,13 +244,19 @@ class RAPIHandler:
             echo_cmd = RAPI_SOC + RAPI_SOC.join([cmd_code] + params)
             echo = self._append_checksum(echo_cmd) + RAPI_LINE_ENDING
 
-        # The controller services its supervision timer between commands. The
-        # lock is released before the handler runs, so $FK does not hold it.
+        # The controller services its supervision timer between commands.
+        # Supervision and the command share one lock scope, so a status read
+        # cannot trip between the timer check and a pulse being accepted. $FK
+        # holds the controller for seconds, so it runs after the lock is released.
         with self._hb_lock:
             self._supervise()
+            handler = self.commands.get(cmd_code)
+            if cmd_code != "FK":
+                return self._run_command(cmd_code, handler, params, echo)
+        return self._run_command(cmd_code, handler, params, echo)
 
-        # Look up command handler
-        handler = self.commands.get(cmd_code)
+    def _run_command(self, cmd_code: str, handler, params: list, echo: str) -> str:
+        """Run one command handler and frame its response."""
         if handler is None:
             response = RAPI_ERROR_RESPONSE
             return echo + self._append_checksum(response) + RAPI_LINE_ENDING
@@ -472,9 +476,7 @@ class RAPIHandler:
                 # Supervision restarts from the acknowledgement, not from the
                 # pulse that was missed.
                 self._hb_last_pulse = time.monotonic()
-                if self._hb_saved_current is not None:
-                    self.evse.current_capacity_amps = self._hb_saved_current
-                    self._hb_saved_current = None
+                self.evse.set_heartbeat_limit(None)
                 return RAPI_OK_RESPONSE
             elif len(params) >= 2:
                 # Set heartbeat interval and current limit
@@ -508,10 +510,7 @@ class RAPIHandler:
             self.heartbeat_missed = True
             self._hb_trips += 1
             # Fall back to the configured limit until the trip is acknowledged.
-            self._hb_saved_current = self.evse.current_capacity_amps
-            self.evse.current_capacity_amps = min(
-                self._hb_saved_current, self.heartbeat_current_limit
-            )
+            self.evse.set_heartbeat_limit(self.heartbeat_current_limit)
 
     def heartbeat_tick(self) -> None:
         """Run supervision on the controller's own clock, without a serial command.
