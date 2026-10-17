@@ -261,3 +261,26 @@ class TestCurrentCapacityReadback:
         rapi.heartbeat_tick()
         rapi.process_command("$SY 165")
         assert self.gc(rapi) == "$OK 6 80 32 32"
+
+
+class TestDisablingSupervisionReleasesATrip:
+    def test_disabling_after_a_timeout_clears_the_trip_and_the_cap(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        assert rapi.evse.current_capacity_amps == 6
+
+        assert rapi.process_command("$SY 0 0").startswith("$OK")
+        assert rapi.heartbeat_missed is False
+        assert rapi.evse.current_capacity_amps == 32
+        assert rapi.process_command("$SY").startswith("$OK")
+
+    def test_a_current_change_after_disabling_takes_effect(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        rapi.process_command("$SY 0 0")
+        assert rapi.process_command("$SC 20").startswith("$OK")
+        assert rapi.evse.current_capacity_amps == 20

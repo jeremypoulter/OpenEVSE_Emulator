@@ -492,6 +492,11 @@ class RAPIHandler:
                 self.heartbeat_interval = first_param
                 self.heartbeat_current_limit = int(params[1])
                 self._hb_last_pulse = time.monotonic()
+                if self.heartbeat_interval == 0:
+                    # Supervision off: nothing can be missed, so any outstanding
+                    # trip and its current cap are released.
+                    self.heartbeat_missed = False
+                    self.evse.set_heartbeat_limit(None)
                 response = (
                     f"{RAPI_OK_RESPONSE} {self.heartbeat_interval} "
                     f"{self.heartbeat_current_limit} 0"

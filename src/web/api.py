@@ -8,7 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 # Handle imports for both direct execution and test execution
 try:
@@ -147,7 +147,7 @@ class WebAPI:
         port: int = 8080,
         reporter=None,
         reporting_config: dict | None = None,
-        heartbeat_status=None,
+        heartbeat_status: Optional[Callable[[], dict]] = None,
     ):
         """
         Initialize the web API.
