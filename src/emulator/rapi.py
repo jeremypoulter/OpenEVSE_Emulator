@@ -530,6 +530,8 @@ class RAPIHandler:
         """Forget an outstanding trip, e.g. after the controller has been reset."""
         with self._hb_lock:
             self.heartbeat_missed = False
+            # Restart the baseline, or an overdue timer retrips on the next tick.
+            self._hb_last_pulse = time.monotonic()
 
     def heartbeat_tick(self) -> None:
         """Run supervision on the controller's own clock, without a serial command.

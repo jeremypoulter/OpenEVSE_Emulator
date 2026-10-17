@@ -32,6 +32,14 @@ def _fresh_handler():
     return RAPIHandler(EVSEStateMachine(), EVSimulator())
 
 
+def wait_until_fk_is_busy(rapi, timeout=2.0):
+    """Block until a $FK on another thread has set the controller busy."""
+    deadline = time.monotonic() + timeout
+    while not rapi._busy_in_fk and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert rapi._busy_in_fk, "$FK never became busy"
+
+
 @pytest.fixture
 def rapi():
     return make_handler()
@@ -87,9 +95,10 @@ class TestSupervisionTrip:
 
     def test_supervision_does_not_run_while_fk_is_busy(self, rapi):
         rapi.process_command("$SY 1 6")
-        rapi.stuck_recovery_seconds = 1.5
+        rapi.stuck_recovery_seconds = 4.0
         worker = threading.Thread(target=rapi.process_command, args=("$FK",))
         worker.start()
+        wait_until_fk_is_busy(rapi)
         time.sleep(1.2)  # longer than the interval, but the controller is busy
         assert rapi.heartbeat_status()["missed"] is False
         worker.join()
@@ -179,9 +188,10 @@ class TestSupervisionWithoutTraffic:
 
     def test_tick_does_nothing_while_fk_is_busy(self, rapi):
         rapi.process_command("$SY 1 6")
-        rapi.stuck_recovery_seconds = 1.5
+        rapi.stuck_recovery_seconds = 4.0
         worker = threading.Thread(target=rapi.process_command, args=("$FK",))
         worker.start()
+        wait_until_fk_is_busy(rapi)
         time.sleep(1.2)
         rapi.heartbeat_tick()
         assert rapi.heartbeat_missed is False
@@ -301,5 +311,6 @@ class TestMergedWithTestControls:
         rapi.heartbeat_tick()
         rapi.clear_heartbeat_trip()
         rapi.evse.restore_defaults()
+        rapi.heartbeat_tick()
         assert rapi.heartbeat_missed is False
         assert rapi.evse.offered_current_amps == 32
