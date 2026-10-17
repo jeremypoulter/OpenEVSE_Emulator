@@ -27,6 +27,11 @@ def make_handler(firmware=NEW_FIRMWARE, protocol=NEW_PROTOCOL):
     return handler
 
 
+def _fresh_handler():
+    """A handler built with the environment as it is, not the test override."""
+    return RAPIHandler(EVSEStateMachine(), EVSimulator())
+
+
 @pytest.fixture
 def rapi():
     return make_handler()
@@ -116,3 +121,35 @@ class TestMissedPulseAcknowledgement:
         assert status["acks"] == 1
         # The ack restarts the timer, so an immediate pulse is accepted.
         assert rapi.process_command("$SY").startswith("$OK")
+
+
+class TestOfferedCurrentFallback:
+    def test_trip_drops_offered_current_to_the_limit_and_ack_restores_it(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        assert rapi.heartbeat_status()["missed"] is True
+        assert rapi.evse.current_capacity_amps == 6
+
+        assert rapi.process_command("$SY 165").startswith("$OK")
+        assert rapi.evse.current_capacity_amps == 32
+
+    def test_trip_never_raises_a_lower_offer(self, rapi):
+        rapi.evse.current_capacity_amps = 6
+        rapi.process_command("$SY 1 10")
+        time.sleep(1.1)
+        rapi.heartbeat_status()
+        assert rapi.evse.current_capacity_amps == 6
+        rapi.process_command("$SY 165")
+        assert rapi.evse.current_capacity_amps == 6
+
+
+class TestFkDurationFromEnvironment:
+    @pytest.mark.parametrize("raw", ["abc", "nan", "inf"])
+    def test_unusable_values_fall_back_to_thirty_seconds(self, monkeypatch, raw):
+        monkeypatch.setenv("OPENEVSE_EMU_FK_SECONDS", raw)
+        assert _fresh_handler().stuck_recovery_seconds == 30.0
+
+    def test_negative_values_are_clamped_to_zero(self, monkeypatch):
+        monkeypatch.setenv("OPENEVSE_EMU_FK_SECONDS", "-5")
+        assert _fresh_handler().stuck_recovery_seconds == 0.0

@@ -64,18 +64,21 @@ class EVSEStateMachine:
     """Manages EVSE state and charging logic."""
 
     def __init__(
-        self, firmware_version: str = "8.2.3", protocol_version: str = "5.0.1"
+        self, firmware_version: str = "8.2.3", protocol_version: str | None = None
     ):
         """
         Initialize the EVSE state machine.
 
         Args:
             firmware_version: Firmware version string
-            protocol_version: RAPI protocol version string
+            protocol_version: RAPI protocol version string. When omitted, the
+                firmware profile's protocol is used (5.0.1 if it has none).
         """
-        self.firmware_version = firmware_version
-        self.protocol_version = protocol_version
         profile = FIRMWARE_PROFILES.get(firmware_version, {})
+        self.firmware_version = firmware_version
+        self.protocol_version = protocol_version or profile.get(
+            "protocol_version", "5.0.1"
+        )
         self._firmware_features = profile.get("features", {})
         self._relay_enabled = [True, True, True]
 

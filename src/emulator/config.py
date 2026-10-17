@@ -50,7 +50,6 @@ def default_config() -> dict:
         },
         "evse": {
             "firmware_version": "8.2.3",
-            "protocol_version": FIRMWARE_PROFILES["8.2.3"]["protocol_version"],
             "default_current": 32,
             "service_level": "L2",
             "gfci_self_test": True,

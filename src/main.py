@@ -59,7 +59,7 @@ class OpenEVSEEmulator:
         evse_config = self.config["evse"]
         self.evse = EVSEStateMachine(
             firmware_version=evse_config["firmware_version"],
-            protocol_version=evse_config["protocol_version"],
+            protocol_version=evse_config.get("protocol_version"),
         )
         self.evse.current_capacity_amps = evse_config["default_current"]
         self.evse.service_level = evse_config["service_level"]
