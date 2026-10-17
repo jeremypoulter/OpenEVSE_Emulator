@@ -64,7 +64,7 @@ class OpenEVSEEmulator:
         evse_config = self.config["evse"]
         self.evse = EVSEStateMachine(
             firmware_version=evse_config["firmware_version"],
-            protocol_version=evse_config["protocol_version"],
+            protocol_version=evse_config.get("protocol_version"),
         )
         self._apply_startup_config()
 
@@ -112,6 +112,7 @@ class OpenEVSEEmulator:
             port=web_config["port"],
             reporter=self.reporter,
             reporting_config=reporting_config,
+            heartbeat_status=self.rapi.heartbeat_status,
             reset_hook=self._on_reset,
             scale_hook=self.catch_up,
         )
@@ -214,6 +215,9 @@ class OpenEVSEEmulator:
     def _on_reset(self) -> None:
         """Re-apply startup config after a reset, discarding time not yet simulated."""
         self.last_update_time = time.time()
+        # The EVSE's power-on state has no heartbeat trip, so the RAPI side
+        # must not keep one either.
+        self.rapi.clear_heartbeat_trip()
         self._apply_startup_config()
 
     def advance(self, delta_sec: float) -> None:
@@ -238,6 +242,9 @@ class OpenEVSEEmulator:
 
         # Update EVSE state based on EV
         self.evse.update_state(ev_pilot_state)
+
+        # Supervision runs on the controller's clock, even with no traffic
+        self.rapi.heartbeat_tick()
 
         # Get EVSE output
         evse_status = self.evse.get_status()

@@ -9,7 +9,7 @@ from flask_socketio import SocketIO
 from flask_cors import CORS
 import os
 import threading
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 # Handle imports for both direct execution and test execution
 try:
@@ -148,6 +148,7 @@ class WebAPI:
         port: int = 8080,
         reporter=None,
         reporting_config: dict | None = None,
+        heartbeat_status: Optional[Callable[[], dict]] = None,
         reset_hook=None,
         scale_hook=None,
     ):
@@ -162,6 +163,8 @@ class WebAPI:
             reporter: Optional TelemetryReporter for the reporting endpoints
             reporting_config: The 'reporting' config the reporter was built
                 from, used as the base for runtime reconfiguration
+            heartbeat_status: Optional callable returning the RAPI heartbeat
+                supervision snapshot, added to /api/evse/status as "heartbeat"
             reset_hook: Optional callable run after POST /api/test/reset has
                 restored the built-in defaults, used to re-apply the
                 configured startup values
@@ -169,6 +172,7 @@ class WebAPI:
                 scale changes, so time already elapsed is charged at the old scale
         """
         self.evse = evse
+        self.heartbeat_status = heartbeat_status
         self.ev = ev
         self.host = host
         self.port = port
@@ -520,7 +524,12 @@ ws.onmessage = (event) => {
         # EVSE endpoints
         @self.app.route("/api/evse/status", methods=["GET"])
         def get_evse_status():
-            return jsonify(self.evse.get_status())
+            # Evaluate heartbeat first so this response already shows any fallback
+            heartbeat = self.heartbeat_status() if self.heartbeat_status else None
+            status = self.evse.get_status()
+            if heartbeat is not None:
+                status["heartbeat"] = heartbeat
+            return jsonify(status)
 
         @self.app.route("/api/evse/version", methods=["GET"])
         def get_version():

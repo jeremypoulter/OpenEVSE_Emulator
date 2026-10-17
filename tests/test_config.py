@@ -45,7 +45,8 @@ def test_default_config():
 
     # Check EVSE config
     assert config["evse"]["firmware_version"] == "8.2.3"
-    assert config["evse"]["protocol_version"] == "5.0.1"
+    # Not pinned: the firmware profile supplies the protocol unless one is set.
+    assert "protocol_version" not in config["evse"]
     assert config["evse"]["default_current"] == 32
 
     # Check web config
@@ -450,3 +451,61 @@ class TestReportingConfig:
         )
         assert config["reporting"]["http"]["timeout_sec"] == 20.0
         assert config["reporting"]["mqtt"]["retain"] is False
+
+
+def test_firmware_override_takes_its_profile_protocol():
+    """--evse-firmware-version 9.3.0 alone must advertise protocol 6.0.0.
+
+    The OpenEVSE library only sends $FH/$FK from protocol 6.0.0 on, so this is
+    the path the firmware's relay recovery depends on at startup.
+    """
+    from src.emulator.config import apply_cli_overrides, default_config
+    from src.emulator.evse import EVSEStateMachine
+
+    config = default_config()
+    apply_cli_overrides(config, {"evse_firmware_version": "9.3.0"})
+    # Same construction as EmulatorApp in src/main.py.
+    evse = EVSEStateMachine(
+        firmware_version=config["evse"]["firmware_version"],
+        protocol_version=config["evse"].get("protocol_version"),
+    )
+    assert evse.protocol_version == "6.0.0"
+
+
+def test_explicit_protocol_override_wins_over_the_profile():
+    from src.emulator.config import apply_cli_overrides, default_config
+    from src.emulator.evse import EVSEStateMachine
+
+    config = default_config()
+    apply_cli_overrides(
+        config,
+        {"evse_firmware_version": "9.3.0", "evse_protocol_version": "5.0.1"},
+    )
+    evse = EVSEStateMachine(
+        firmware_version=config["evse"]["firmware_version"],
+        protocol_version=config["evse"].get("protocol_version"),
+    )
+    assert evse.protocol_version == "5.0.1"
+
+
+def test_shipped_config_does_not_pin_the_protocol(tmp_path):
+    """The config file that ships with the emulator must not override the profile.
+
+    Loads the real config.json, not default_config(), so a pin in the file
+    cannot slip past the default-config test.
+    """
+    from pathlib import Path
+
+    from src.emulator.config import apply_cli_overrides, load_config
+    from src.emulator.evse import EVSEStateMachine
+
+    shipped = Path(__file__).resolve().parent.parent / "config.json"
+    config = load_config(str(shipped))
+    assert "protocol_version" not in config["evse"]
+
+    apply_cli_overrides(config, {"evse_firmware_version": "9.3.0"})
+    evse = EVSEStateMachine(
+        firmware_version=config["evse"]["firmware_version"],
+        protocol_version=config["evse"].get("protocol_version"),
+    )
+    assert evse.protocol_version == "6.0.0"
