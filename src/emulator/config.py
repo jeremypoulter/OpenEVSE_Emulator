@@ -22,6 +22,16 @@ FIRMWARE_PROFILES = {
         "protocol_version": "5.0.1",
         "features": {"relay_control": True, "proximity_pilot": True},
     },
+    # D9 controller firmware: protocol 6.0.0+ is what the firmware's OpenEVSE
+    # library needs before it will send $FH / $FK at all.
+    "9.3.0": {
+        "protocol_version": "6.0.0",
+        "features": {
+            "relay_control": True,
+            "proximity_pilot": True,
+            "stuck_relay_recovery": True,
+        },
+    },
 }
 SUPPORTED_FIRMWARE_VERSIONS = tuple(FIRMWARE_PROFILES)
 
@@ -40,7 +50,6 @@ def default_config() -> dict:
         },
         "evse": {
             "firmware_version": "8.2.3",
-            "protocol_version": FIRMWARE_PROFILES["8.2.3"]["protocol_version"],
             "default_current": 32,
             "service_level": "L2",
             "gfci_self_test": True,

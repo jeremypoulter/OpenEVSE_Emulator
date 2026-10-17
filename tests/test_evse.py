@@ -548,3 +548,134 @@ def test_over_temperature_during_charging():
     # Should trigger over-temperature error
     if status["temperature_ds"] > 650 or status["temperature_mcp"] > 650:
         assert status["error_flags"] & ErrorFlags.OVER_TEMPERATURE
+
+
+class TestFaultedCharging:
+    """A faulted or switched-off EVSE must not let the vehicle keep charging."""
+
+    def _charging_evse(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.update_charging(7.2, 1.0)
+        assert evse.get_status()["actual_current"] > 0
+        return evse
+
+    def test_offer_is_capacity_when_healthy(self):
+        evse = EVSEStateMachine()
+        evse.current_capacity_amps = 20
+        assert evse.offered_current_amps == 20
+
+    def test_offer_is_zero_with_error(self):
+        evse = self._charging_evse()
+        evse.trigger_error(ErrorFlags.GFCI_TRIP)
+        assert evse.offered_current_amps == 0
+
+    def test_offer_is_zero_when_disabled(self):
+        evse = EVSEStateMachine()
+        evse.disable()
+        assert evse.offered_current_amps == 0
+
+    def test_current_stays_zero_after_error(self):
+        evse = self._charging_evse()
+        evse.trigger_error(ErrorFlags.GFCI_TRIP)
+        evse.update_state("C")
+        evse.update_charging(7.2, 1.0)
+        assert evse.get_status()["actual_current"] == 0
+
+
+class TestSimulatedTime:
+    """Session length follows the simulation clock, so a time scale is consistent."""
+
+    def test_session_time_uses_simulated_seconds(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.update_charging(7.2, 3600.0)  # one simulated hour, however fast it ran
+        assert evse.get_status()["session_time"] == 3600
+
+    def test_session_time_restarts_for_each_session(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.update_charging(7.2, 600.0)
+        evse.update_state("A")
+        evse.update_state("C")
+        evse.update_charging(7.2, 5.0)
+        assert evse.get_status()["session_time"] == 5
+
+
+class TestRestoreDefaults:
+    """Reset returns to the configured firmware, not whatever was set at runtime."""
+
+    def test_reset_keeps_configured_firmware_not_runtime_change(self):
+        from src.emulator.config import FIRMWARE_PROFILES
+
+        evse = EVSEStateMachine()
+        original = evse.firmware_version
+        other = next(v for v in FIRMWARE_PROFILES if v != original)
+        evse.set_firmware_profile(other)
+        evse.restore_defaults()
+        assert evse.firmware_version == original
+
+    def test_reset_keeps_configured_protocol_override(self):
+        evse = EVSEStateMachine(firmware_version="8.2.3", protocol_version="5.0.9")
+        evse.restore_defaults()
+        assert evse.protocol_version == "5.0.9"
+
+
+class TestSessionAccounting:
+    """The session clock runs for the whole session; charging-only metrics do not."""
+
+    def test_session_clock_runs_while_faulted(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.trigger_error(ErrorFlags.GFCI_TRIP)
+        evse.update_charging(0, 600.0)
+        assert evse.get_status()["session_time"] == 600
+
+    def test_disabled_charger_does_not_heat_up(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        evse.update_charging(7.2, 60.0)
+        warm = evse.get_status()["temperature_ds"]
+        evse.disable()
+        evse.update_charging(0, 60.0)
+        assert evse.get_status()["temperature_ds"] < warm
+
+
+class TestTemperature:
+    """Short steps still heat the charger, so accelerated charging is visible."""
+
+    def test_one_second_steps_heat_the_charger(self):
+        evse = EVSEStateMachine()
+        evse.update_state("C")
+        start = evse.get_status()["temperature_ds"]
+        for _ in range(10):
+            evse.update_charging(7.2, 1.0)
+        assert evse.get_status()["temperature_ds"] > start
+
+
+def test_overheating_triggers_over_temperature_fault():
+    """Heating past the threshold must raise the over-temperature fault."""
+    evse = EVSEStateMachine()
+    evse.update_state("C")
+    for _ in range(2000):
+        evse.update_charging(7.2, 1.0)
+    assert evse.get_status()["error_flags"] & ErrorFlags.OVER_TEMPERATURE
+
+
+def test_zero_power_step_does_not_heat():
+    """A step where the car draws nothing (say, at its charge limit) adds no heat."""
+    evse = EVSEStateMachine()
+    evse.update_state("C")
+    start = evse.get_status()["temperature_ds"]
+    for _ in range(10):
+        evse.update_charging(0.0, 1.0)
+    assert evse.get_status()["temperature_ds"] <= start
+
+
+def test_zero_power_step_reports_no_current():
+    """A step that draws nothing must not keep reporting the offered current."""
+    evse = EVSEStateMachine()
+    evse.current_capacity_amps = 32
+    evse.update_state("C")
+    evse.update_charging(0.0, 1.0)
+    assert evse.get_status()["actual_current"] == 0
