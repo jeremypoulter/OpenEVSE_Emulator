@@ -340,9 +340,14 @@ class RAPIHandler:
         min_amps = self.evse.min_capacity_amps
         max_hw_amps = self.evse.max_hw_capacity_amps
         pilot_amps = self.evse.pilot_capacity_amps
+        # While a heartbeat trip is outstanding the pilot advertises the fallback.
+        limit = self.evse.heartbeat_limit_amps
+        if limit is not None:
+            pilot_amps = min(pilot_amps, limit)
         # cmaxamps reports the configured charging current set via $SC, which is
-        # what the ESP32 firmware reads back as max_current_soft.
-        current_config_amps = self.evse.current_capacity_amps
+        # what the ESP32 firmware reads back as max_current_soft. It does not
+        # follow the heartbeat fallback.
+        current_config_amps = self.evse.commanded_current_amps
         return f"{RAPI_OK_RESPONSE} {min_amps} {max_hw_amps} {pilot_amps} {current_config_amps}"
 
     def _cmd_set_current_capacity(self, params: list) -> str:

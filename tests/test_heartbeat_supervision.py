@@ -230,3 +230,34 @@ class TestPulseTelemetry:
         status = rapi.heartbeat_status()
         assert status["missed"] is True
         assert status["seconds_since_pulse"] < 0.2
+
+
+class TestCurrentCapacityReadback:
+    """$GC: cmaxamps is the configured $SC value; the pilot shows the fallback."""
+
+    @staticmethod
+    def gc(rapi):
+        return rapi.process_command("$GC").split("^")[0]
+
+    def test_timeout_caps_the_pilot_but_not_the_configured_current(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        assert self.gc(rapi) == "$OK 6 80 6 32"
+
+    def test_a_current_change_during_the_trip_reads_back_as_configured(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        rapi.process_command("$SC 20")
+        assert self.gc(rapi) == "$OK 6 80 6 20"
+
+    def test_acknowledgement_restores_the_pilot(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.heartbeat_tick()
+        rapi.process_command("$SY 165")
+        assert self.gc(rapi) == "$OK 6 80 32 32"

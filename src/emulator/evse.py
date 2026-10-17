@@ -204,6 +204,18 @@ class EVSEStateMachine:
             # Valid range: 6-80A for most EVSEs
             self._current_capacity_amps = max(6, min(80, value))
 
+    @property
+    def commanded_current_amps(self) -> int:
+        """The configured current set by $SC, ignoring any heartbeat limit."""
+        with self._lock:
+            return self._current_capacity_amps
+
+    @property
+    def heartbeat_limit_amps(self) -> int | None:
+        """The heartbeat fallback limit while a trip is outstanding, else None."""
+        with self._lock:
+            return self._heartbeat_limit_amps
+
     def _offered_current_locked(self) -> int:
         """The commanded capacity, capped by the heartbeat limit if one is set."""
         if self._heartbeat_limit_amps is None:
