@@ -253,10 +253,8 @@ def test_variance_direct_mode():
     ev.direct_current_amps = 100.0
     ev.current_variance_enabled = True
 
-    # Force variance update by manipulating last_variance_time
-    import time
-
-    ev._last_variance_time = time.time() - 2.0
+    # Advance the simulated clock so the variance interval has elapsed
+    ev._sim_time_sec = 2.0
 
     ev.update_charging(100, 240, 1.0)
 
@@ -273,10 +271,8 @@ def test_variance_battery_mode():
     ev.soc = 50.0
     ev.current_variance_enabled = True
 
-    # Force variance update
-    import time
-
-    ev._last_variance_time = time.time() - 2.0
+    # Advance the simulated clock so the variance interval has elapsed
+    ev._sim_time_sec = 2.0
 
     ev.update_charging(32, 240, 0.001)
 
@@ -368,7 +364,8 @@ class TestVehicleTelemetryState:
         ev.direct_current_amps = 10.0
 
         # 10 A at 1000 V = 10 kW; 10 kWh remaining to the 60% limit = 1 hour.
-        ev.update_charging(offered_current_amps=0, voltage=1000.0, delta_time_sec=0)
+        # The EVSE offers 32 A; the car's own 10 A direct setting limits the rate.
+        ev.update_charging(offered_current_amps=32, voltage=1000.0, delta_time_sec=0)
 
         assert ev.time_to_full_charge_sec == 3600
 
@@ -463,3 +460,29 @@ class TestBoolRejectedAsNumber:
         with pytest.raises(ValueError) as exc_info:
             EVSimulator(charge_limit_soc="not-a-number")
         assert "expected a number" in str(exc_info.value)
+
+
+def test_direct_mode_stops_when_nothing_offered():
+    """A fault offers 0 A; a vehicle in direct mode must stop charging too."""
+    ev = EVSimulator()
+    ev.connected = True
+    ev.requesting_charge = True
+    ev.direct_mode = True
+    ev.direct_current_amps = 20.0
+
+    ev.update_charging(0, 240, 1.0)
+
+    assert ev.actual_charge_rate_kw == 0.0
+
+
+def test_direct_mode_respects_reduced_offer():
+    """A reduced EVSE offer caps a vehicle in direct mode, not just a fault."""
+    ev = EVSimulator()
+    ev.connected = True
+    ev.requesting_charge = True
+    ev.direct_mode = True
+    ev.direct_current_amps = 20.0
+
+    ev.update_charging(6, 240, 1.0)
+
+    assert ev.actual_charge_rate_kw == pytest.approx(1.44)
