@@ -38,6 +38,15 @@ Examples:
 
     # Engine mode: run the real safety firmware instead of emulating it
     parser.add_argument(
+        "--engine",
+        dest="engine_enabled",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Run the real firmware as the EVSE. The binary is found from "
+        "--engine-binary, or for the chosen --engine-board in "
+        "$OPENEVSE_NATIVE_DIR or a sibling open_evse checkout.",
+    )
+    parser.add_argument(
         "--engine-binary",
         dest="engine_binary",
         type=str,
@@ -51,7 +60,8 @@ Examples:
         dest="engine_board",
         type=str,
         default=argparse.SUPPRESS,
-        help="Board the firmware presents as: oev6 or nxt (default: ask it)",
+        help="Board the firmware presents as: oev6 or nxt (default: oev6, or "
+        "whatever --engine-binary reports)",
     )
     parser.add_argument(
         "--engine-eeprom",

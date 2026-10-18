@@ -15,6 +15,9 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # The firmware built into the image for engine mode; see tests.yml.
+  FIRMWARE_REPO: ${{ vars.FIRMWARE_REPO || 'https://github.com/jeremypoulter/open_evse.git' }}
+  FIRMWARE_REF: ${{ vars.FIRMWARE_REF || 'feat/native-target' }}
 
 jobs:
   build-and-push:
@@ -64,11 +67,33 @@ jobs:
             org.opencontainers.image.vendor=Jeremy Poulter
             org.opencontainers.image.licenses=MIT
 
+      # Build one platform into the local daemon first and prove engine mode
+      # works in the image, before spending time on the multi-platform push.
+      # The layers are shared through the cache, so the real build below is
+      # mostly a cache hit.
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: openevse-emulator:smoke
+          build-args: |
+            FIRMWARE_REPO=${{ env.FIRMWARE_REPO }}
+            FIRMWARE_REF=${{ env.FIRMWARE_REF }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test engine mode
+        run: scripts/docker-smoke.sh openevse-emulator:smoke
+
       - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
+          build-args: |
+            FIRMWARE_REPO=${{ env.FIRMWARE_REPO }}
+            FIRMWARE_REF=${{ env.FIRMWARE_REF }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

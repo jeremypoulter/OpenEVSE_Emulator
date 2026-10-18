@@ -86,6 +86,30 @@ docker run -p 8080:8080 -p 8023:8023 \
   openevse-emulator
 ```
 
+### Engine Mode
+
+The image includes the real OpenEVSE firmware, built natively for both boards
+under `/opt/openevse`. Turn it on with environment variables; the Python EVSE
+is the default.
+
+```bash
+docker run -p 8080:8080 -p 8023:8023 \
+  -e ENGINE_ENABLED=true \
+  -e ENGINE_BOARD=oev6 \
+  openevse-emulator
+```
+
+| Variable | Meaning |
+| --- | --- |
+| `ENGINE_ENABLED` | `true` to run the firmware instead of the Python EVSE |
+| `ENGINE_BOARD` | `oev6` (default) or `nxt` |
+| `ENGINE_BINARY` | Use this binary instead of the one in the image |
+| `ENGINE_EEPROM` | File backing the firmware's EEPROM, so settings persist |
+
+`scripts/docker-smoke.sh <image>` checks both boards come up; CI runs it on
+every build. See the [README](README.md#engine-mode-running-the-real-firmware)
+for what engine mode changes.
+
 ### Networking
 
 The emulator exposes two ports:

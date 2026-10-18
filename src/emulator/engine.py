@@ -25,6 +25,7 @@ repository for the channel protocol.
 """
 
 import os
+import re
 import selectors
 import socket
 import subprocess
@@ -43,14 +44,64 @@ PILOT_BANDS = {
 }
 
 
+# PlatformIO environment that builds each board's native firmware.
+BOARD_ENVS = {"oev6": "native_oev6", "nxt": "native_nxt"}
+DEFAULT_BOARD = "oev6"
+
+# Where a checkout of open_evse is expected to sit next to this repository.
+_SIBLING_CHECKOUT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "open_evse"
+)
+
+
 class EngineError(RuntimeError):
     """The firmware could not be started or stopped talking."""
+
+
+def find_firmware(board: Optional[str] = None) -> Optional[str]:
+    """Locate the natively-built firmware for a board, or None.
+
+    Looked for, in order:
+
+      1. ``$OPENEVSE_NATIVE_BINARY`` -- one explicit binary. Only honoured when
+         no board is named, since a single path cannot serve two boards.
+      2. ``$OPENEVSE_NATIVE_DIR`` -- a directory holding ``native_<board>``
+         (the Docker image's layout), or ``native_<board>/program`` (a copy of
+         the PlatformIO build directory).
+      3. A sibling ``open_evse`` checkout built with ``pio run -e native_<board>``.
+    """
+    explicit = os.environ.get("OPENEVSE_NATIVE_BINARY")
+    if explicit and not board:
+        return explicit if os.path.exists(explicit) else None
+
+    env_name = BOARD_ENVS.get(board or DEFAULT_BOARD)
+    if env_name is None:
+        return None
+
+    candidates = []
+    native_dir = os.environ.get("OPENEVSE_NATIVE_DIR")
+    if native_dir:
+        candidates.append(os.path.join(native_dir, env_name))
+        candidates.append(os.path.join(native_dir, env_name, "program"))
+    candidates.append(
+        os.path.join(_SIBLING_CHECKOUT, ".pio", "build", env_name, "program")
+    )
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return os.path.normpath(path)
+    return None
 
 
 def _rapi_frame(cmd: str) -> str:
     """Frame a RAPI command with its additive checksum: the 8-bit sum of every
     character before the '*', the leading '$' included."""
     return "%s*%02X\r" % (cmd, sum(cmd.encode()) & 0xFF)
+
+
+def _reply_fields(reply: str) -> list:
+    """Split a RAPI reply into its fields, dropping whichever checksum
+    ('^' XOR or '*' additive) it carries."""
+    return re.split(r"[\^*]", reply.strip())[0].split()
 
 
 class FirmwareEngine:
@@ -76,6 +127,9 @@ class FirmwareEngine:
         self.sock: Optional[socket.socket] = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
+        # One command in flight at a time: serial traffic and web requests
+        # (heartbeat_status) both come through process_command().
+        self._cmd_lock = threading.Lock()
         self._threads: list[threading.Thread] = []
         self._async_callback: Optional[Callable[[str], None]] = None
         self._pending_async: list = []
@@ -89,6 +143,9 @@ class FirmwareEngine:
         self.current_capacity: Optional[int] = None
         self.vflags: Optional[int] = None
         self.boot_postcode: Optional[int] = None
+        # from $GV, so the web model can report the firmware's own versions
+        self.firmware_version: Optional[str] = None
+        self.protocol_version: Optional[str] = None
         self._responses: list = []
 
         # simulated board wiring
@@ -158,9 +215,15 @@ class FirmwareEngine:
                 raise EngineError("unsupported firmware board: %r" % self.board)
             self._send_aclines()
             self.set_pilot_band("A")
+            self._read_version()
         except Exception:
             self._teardown()
             raise
+
+    def _read_version(self) -> None:
+        parts = _reply_fields(self.process_command(_rapi_frame("$GV")))
+        if len(parts) >= 3 and parts[0] == "$OK":
+            self.firmware_version, self.protocol_version = parts[1], parts[2]
 
     def _teardown(self) -> None:
         """Undo whatever start() managed to bring up, so a fresh start() can
@@ -317,7 +380,11 @@ class FirmwareEngine:
         status = ev.get_status()
         rate_kw = status.get("actual_charge_rate_kw", 0.0) or 0.0
         volts = 240.0
-        self.set_charge_current((rate_kw * 1000.0 / volts) if rate_kw else 0.0)
+        # No contactor, no current: the CT only sees what flows through a
+        # closed relay. The vehicle may ask for power first (state C), and
+        # the firmware closes the contactor in response.
+        flowing = rate_kw and self.relay_closed()
+        self.set_charge_current((rate_kw * 1000.0 / volts) if flowing else 0.0)
 
     # -- fault injection, for the web API's error-simulation endpoints ------
 
@@ -422,6 +489,10 @@ class FirmwareEngine:
         if not cmd:
             return ""
 
+        with self._cmd_lock:
+            return self._process_command_locked(cmd, timeout)
+
+    def _process_command_locked(self, cmd: str, timeout: float) -> str:
         with self._lock:
             before = len(self._responses)
 
@@ -448,6 +519,26 @@ class FirmwareEngine:
             time.sleep(0.005)
         return "$NK^21\r"
 
+    def heartbeat_status(self) -> Optional[dict]:
+        """The firmware's heartbeat supervision state, from $GY, for the web
+        API. None if the firmware does not answer."""
+        parts = _reply_fields(self.process_command(_rapi_frame("$GY")))
+        if len(parts) < 4 or parts[0] != "$OK":
+            return None
+        try:
+            return {
+                "interval": int(parts[1]),
+                "current_limit": int(parts[2]),
+                "trigger": int(parts[3]),
+            }
+        except ValueError:
+            return None
+
+    def clear_heartbeat_trip(self) -> None:
+        """No-op: a reset does not restart the firmware, so its supervision
+        state is the firmware's to keep. Present so the engine can stand in
+        for RAPIHandler."""
+
     def send_boot_notification(self) -> None:
         """No-op: the firmware sends its own $AB when it boots, and that one is
         the truth. Present so the engine can stand in for RAPIHandler."""
@@ -468,3 +559,9 @@ class FirmwareEngine:
             evse.set_engine_state(state)
         if capacity is not None:
             evse.set_engine_capacity(capacity)
+        # Report what is actually running, not the Python model's configured
+        # version, which means nothing here.
+        if self.firmware_version:
+            evse.firmware_version = self.firmware_version
+        if self.protocol_version:
+            evse.protocol_version = self.protocol_version

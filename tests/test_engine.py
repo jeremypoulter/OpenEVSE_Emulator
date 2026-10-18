@@ -1,46 +1,44 @@
 """Engine mode: the real safety firmware standing in for the Python EVSE.
 
-These need a natively-built firmware binary from the open_evse repository, so
-they skip when one is not present. Point at it with $OPENEVSE_NATIVE_BINARY,
-or build it in a sibling checkout with:
+These drive the engine directly, below the emulator, and need a natively-built
+firmware binary from the open_evse repository. They skip when there is not one
+(fail, if $OPENEVSE_REQUIRE_ENGINE is set). The binary is found as described in
+``emulator.engine.find_firmware``; build one with:
 
     cd ../open_evse && pio run -e native_oev6
+
+Behaviour shared with the Python EVSE is covered across both by
+tests/conformance/.
 """
 
 import os
 
 import pytest
 
-from src.emulator.engine import FirmwareEngine
+from src.emulator.engine import FirmwareEngine, find_firmware
 from src.emulator.ev import EVSimulator
 from src.emulator.evse import EVSEState, EVSEStateMachine
 
-DEFAULT_BINARY = os.path.join(
-    os.path.dirname(__file__),
-    "..",
-    "..",
-    "open_evse",
-    ".pio",
-    "build",
-    "native_oev6",
-    "program",
-)
+BINARY = find_firmware("oev6")
 
+if BINARY is None and os.environ.get("OPENEVSE_REQUIRE_ENGINE"):
+    raise RuntimeError(
+        "OPENEVSE_REQUIRE_ENGINE is set but no native firmware was found"
+    )
 
-def _binary():
-    return os.environ.get("OPENEVSE_NATIVE_BINARY") or DEFAULT_BINARY
-
-
-pytestmark = pytest.mark.skipif(
-    not os.path.exists(_binary()),
-    reason="native firmware not built; see this module's docstring",
-)
+pytestmark = [
+    pytest.mark.engine,
+    pytest.mark.skipif(
+        BINARY is None,
+        reason="native firmware not built; see this module's docstring",
+    ),
+]
 
 
 @pytest.fixture
 def engine(tmp_path):
     e = FirmwareEngine(
-        binary=_binary(),
+        binary=BINARY,
         eeprom=str(tmp_path / "eeprom.bin"),
         socket_path="/tmp/oevse-engine-test-%d.sock" % os.getpid(),
     )

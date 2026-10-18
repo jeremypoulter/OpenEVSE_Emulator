@@ -222,11 +222,37 @@ pio run -e native_oev6      # OpenEVSE v3 / OEV6
 pio run -e native_nxt       # OpenEVSE NXT (SAMD)
 ```
 
+The emulator finds the build by itself, in this order: `--engine-binary` (or
+`ENGINE_BINARY`), then `native_<board>` in `$OPENEVSE_NATIVE_DIR`, then a
+sibling `open_evse` checkout built as above. The board comes from
+`--engine-board` (or `ENGINE_BOARD`) and defaults to `oev6`.
+
 ### Running
 
 ```bash
+python src/main.py --engine                  # find the build for you
+python src/main.py --engine --engine-board nxt
 python src/main.py --engine-binary ../open_evse/.pio/build/native_oev6/program
 ```
+
+### Running in Docker
+
+The image already contains both builds (`/opt/openevse/native_oev6` and
+`native_nxt`), so there is nothing to build:
+
+```bash
+docker run -p 8080:8080 -p 8023:8023 \
+  -e ENGINE_ENABLED=true -e ENGINE_BOARD=oev6 \
+  ghcr.io/jeremypoulter/openevse_emulator:latest
+```
+
+A freshly booted firmware holds charging until it receives `$SB` (clear boot
+lock), as on real hardware; the WiFi gateway sends it for you.
+
+The web API's error-simulation endpoints fault the simulated *board* in engine
+mode (`gfci`, `no_ground` and `stuck_relay`), and the firmware decides what to
+do about it. Faults the firmware has no input for (`over_temp`, `diode_check`,
+`gfi_self_test`) are refused rather than faked.
 
 The emulator reports which engine it started:
 
@@ -479,6 +505,17 @@ If you want to build from source:
 docker build -t openevse-emulator .
 ```
 
+The build compiles the native firmware for engine mode in a first stage. It
+fetches the source from `FIRMWARE_REPO` at `FIRMWARE_REF` (build arguments).
+To build against a local checkout instead, export a clean copy and give it to
+BuildKit as the `firmware-src` stage:
+
+```bash
+mkdir -p /tmp/open_evse-src
+git -C ../open_evse archive HEAD | tar -x -C /tmp/open_evse-src
+docker buildx build --build-context firmware-src=/tmp/open_evse-src -t openevse-emulator .
+```
+
 Then run:
 
 ```bash
@@ -599,6 +636,34 @@ pytest --cov=src tests/
 # Run specific test file
 pytest tests/test_rapi.py
 ```
+
+#### Running against the real firmware
+
+Tests that take the `backend` fixture (`tests/conformance/`) run once per EVSE
+implementation: the Python state machine, and the real firmware built for the
+`oev6` and `nxt` boards. Where the implementations are meant to agree, this
+checks that they do, and it holds the Python model to what the firmware does.
+
+```bash
+pytest                          # every backend that is available
+pytest --backend python         # Python EVSE only; needs no firmware
+pytest --backend oev6           # one firmware board (repeat to pick several)
+pytest -m "not engine"          # everything that needs no firmware
+pytest -m engine                # only what runs the firmware
+```
+
+The firmware tests skip when no build is found (see
+[Building the firmware](#building-the-firmware)). Set
+`OPENEVSE_REQUIRE_ENGINE=1` to make that a failure instead, as CI does.
+
+To add a test that should hold for every implementation, take `backend` and use
+its helpers (`rapi()`, `step()`, `plug_in()`, `wait_for()`, `api()`). The NXT
+board currently cannot hold a charging session in the firmware's native bench
+(it does not model the NXT's ground sensing), so session scenarios use the
+`session` fixture, which skips there.
+
+CI builds the firmware once, keeps the binaries as the `native-firmware`
+artifact, and runs the whole suite against them.
 
 ### Contributing
 

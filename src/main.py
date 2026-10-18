@@ -21,7 +21,7 @@ from emulator.config import (  # noqa: E402
     apply_env_overrides,
     load_config,
 )
-from emulator.engine import EngineError, FirmwareEngine  # noqa: E402
+from emulator.engine import EngineError, FirmwareEngine, find_firmware  # noqa: E402
 from emulator.evse import EVSEStateMachine  # noqa: E402
 from emulator.ev import EVSimulator  # noqa: E402
 from emulator.rapi import RAPIHandler  # noqa: E402
@@ -96,11 +96,15 @@ class OpenEVSEEmulator:
         engine_config = self.config.get("engine", {})
         self.engine = None
         if engine_config.get("enabled") or engine_config.get("binary"):
-            binary = engine_config.get("binary") or ""
+            binary = engine_config.get("binary") or find_firmware(
+                engine_config.get("board") or None
+            )
             if not binary:
                 raise EngineError(
-                    "engine mode requires 'engine.binary' (or --engine-binary) "
-                    "to point at a native firmware build"
+                    "engine mode could not find a native firmware build. Set "
+                    "'engine.binary' (or --engine-binary), set "
+                    "$OPENEVSE_NATIVE_DIR, or build one with "
+                    "'pio run -e native_oev6' in a sibling open_evse checkout"
                 )
             self.engine = FirmwareEngine(
                 binary=binary,
@@ -169,6 +173,9 @@ class OpenEVSEEmulator:
                 return False
             board = self.engine.board
             version = self.engine.hello.get("version", "unknown")
+            # Don't wait for the first simulation step: the web API is about
+            # to come up and should already report the firmware, not the model.
+            self.engine.mirror_into(self.evse)
             print(f"Engine: {self.engine.binary}")
             print(f"        board={board} version={version}")
 
@@ -299,12 +306,13 @@ class OpenEVSEEmulator:
         offered_current = self.evse.offered_current_amps
         voltage = evse_status["voltage"] / 1000.0  # Convert to volts
 
-        if self.engine and not self.engine.relay_closed():
-            # No contactor, no current. Without this the vehicle would go
-            # on drawing through an open relay whenever the firmware
-            # faulted, and the fault would look harmless.
-            offered_current = 0
-
+        # n.b. the offer is not gated on the contactor here. A vehicle asks
+        # for power by presenting state C, which in this model means it is
+        # drawing, and the firmware only closes the contactor in response --
+        # so withholding the offer until the contactor closed would deadlock
+        # in state B. The contactor gates what the *firmware* sees instead
+        # (see FirmwareEngine.apply_ev), and a fault zeroes the offer through
+        # the mirrored error state.
         # Update EV charging based on EVSE offer
         self.ev.update_charging(offered_current, voltage, delta_time)
 
