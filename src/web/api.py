@@ -148,6 +148,7 @@ class WebAPI:
         port: int = 8080,
         reporter=None,
         reporting_config: dict | None = None,
+        engine=None,
         heartbeat_status: Optional[Callable[[], dict]] = None,
         reset_hook=None,
         scale_hook=None,
@@ -163,6 +164,8 @@ class WebAPI:
             reporter: Optional TelemetryReporter for the reporting endpoints
             reporting_config: The 'reporting' config the reporter was built
                 from, used as the base for runtime reconfiguration
+            engine: Optional FirmwareEngine; when set, error simulation acts
+                on the real firmware's simulated board instead of self.evse
             heartbeat_status: Optional callable returning the RAPI heartbeat
                 supervision snapshot, added to /api/evse/status as "heartbeat"
             reset_hook: Optional callable run after POST /api/test/reset has
@@ -178,6 +181,7 @@ class WebAPI:
         self.port = port
         self.reporter = reporter
         self.reporting_config = reporting_config or {}
+        self.engine = engine
         self.reset_hook = reset_hook
         self.scale_hook = scale_hook
         # Simulated seconds per wall-clock second, read by the simulation loop
