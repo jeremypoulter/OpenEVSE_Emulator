@@ -290,7 +290,21 @@ function updateDisplay() {
     // Read-only EVSE configuration
     document.getElementById('current-capacity-value').textContent = `${evse.current_capacity} A`;
     document.getElementById('service-level-value').textContent = evse.service_level || 'Unknown';
-    document.getElementById('firmware-version').value = evse.firmware_version || '8.2.3';
+    // In engine mode the firmware is the native build, so show what it reported
+    // rather than a profile the user could pick. The Python model has no such
+    // build and keeps the selector.
+    const engineMode = Boolean(evse.engine);
+    const firmwareSelect = document.getElementById('firmware-version');
+    const firmwareNative = document.getElementById('firmware-version-native');
+    firmwareSelect.style.display = engineMode ? 'none' : '';
+    firmwareNative.style.display = engineMode ? '' : 'none';
+    if (engineMode) {
+        firmwareNative.textContent = evse.firmware_version || 'Unknown';
+        document.getElementById('firmware-version-label').textContent = 'Firmware Version (native)';
+    } else {
+        firmwareSelect.value = evse.firmware_version || '8.2.3';
+        document.getElementById('firmware-version-label').textContent = 'Firmware Version';
+    }
     document.getElementById('protocol-version').textContent = evse.protocol_version || '-';
 
     // EV sliders. SoC does move on its own while charging, so it keeps

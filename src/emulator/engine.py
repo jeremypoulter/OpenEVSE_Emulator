@@ -519,6 +519,15 @@ class FirmwareEngine:
             time.sleep(0.005)
         return "$NK^21\r"
 
+    def describe(self) -> dict:
+        """What the web UI needs to say which firmware is running: the board
+        and the version the firmware itself reported."""
+        return {
+            "board": self.board,
+            "firmware_version": self.firmware_version,
+            "protocol_version": self.protocol_version,
+        }
+
     def heartbeat_status(self) -> Optional[dict]:
         """The firmware's heartbeat supervision state, from $GY, for the web
         API. None if the firmware does not answer."""

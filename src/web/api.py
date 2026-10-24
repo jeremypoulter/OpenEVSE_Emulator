@@ -530,7 +530,7 @@ ws.onmessage = (event) => {
         def get_evse_status():
             # Evaluate heartbeat first so this response already shows any fallback
             heartbeat = self.heartbeat_status() if self.heartbeat_status else None
-            status = self.evse.get_status()
+            status = self._evse_status()
             if heartbeat is not None:
                 status["heartbeat"] = heartbeat
             return jsonify(status)
@@ -551,6 +551,19 @@ ws.onmessage = (event) => {
                 from emulator.config import FIRMWARE_PROFILES
             except ImportError:
                 from ..emulator.config import FIRMWARE_PROFILES
+
+            if self.engine:
+                # The firmware is the binary that was built, not a profile to
+                # pick. Changing it means running a different build.
+                return (
+                    jsonify(
+                        {
+                            "error": "Firmware is the native build in engine mode "
+                            "and cannot be changed"
+                        }
+                    ),
+                    409,
+                )
 
             data = request.get_json(silent=True) or {}
             version = data.get("version")
@@ -978,7 +991,7 @@ ws.onmessage = (event) => {
         # Combined status endpoint
         @self.app.route("/api/status", methods=["GET"])
         def get_combined_status():
-            return jsonify({"evse": self.evse.get_status(), "ev": self.ev.get_status()})
+            return jsonify({"evse": self._evse_status(), "ev": self.ev.get_status()})
 
     def _on_state_change(self, new_state):
         """Called when EVSE state changes."""
@@ -1019,9 +1032,16 @@ ws.onmessage = (event) => {
 
         return merged
 
+    def _evse_status(self) -> dict:
+        """The EVSE status every endpoint and push reports. In engine mode it
+        says so, so the UI can show the firmware rather than offer to change it."""
+        status = self.evse.get_status()
+        status["engine"] = self.engine.describe() if self.engine else None
+        return status
+
     def _broadcast_status(self):
         """Broadcast status update via WebSocket."""
-        evse_status = self.evse.get_status()
+        evse_status = self._evse_status()
         ev_status = self.ev.get_status()
 
         self.socketio.emit("status_update", {"evse": evse_status, "ev": ev_status})
