@@ -92,6 +92,9 @@ class TestFaultInjectionRouting:
             ("gfci", "trip_gfi"),
             ("no_ground", "open_ground"),
             ("stuck_relay", "weld_relay"),
+            ("diode_check", "fail_diode"),
+            ("over_temp", "overheat"),
+            ("gfi_self_test", "break_gfi_selftest"),
         ],
     )
     def test_trigger_faults_the_board(self, client, error, method):
@@ -102,16 +105,14 @@ class TestFaultInjectionRouting:
         getattr(self.engine, method).assert_called_once()
         self.evse.trigger_error.assert_not_called()
 
-    def test_faults_the_firmware_cannot_model_are_refused(self, client):
-        response = self._post(client, "/api/errors/trigger", {"error": "over_temp"})
+    def test_unknown_faults_are_still_refused(self, client):
+        response = self._post(client, "/api/errors/trigger", {"error": "bogus"})
         assert response.status_code == 400
         self.evse.trigger_error.assert_not_called()
 
-    def test_clear_restores_the_board(self, client):
+    def test_clear_recovers_the_firmware(self, client):
         assert self._post(client, "/api/errors/clear").status_code == 200
-        self.engine.clear_gfi.assert_called_once()
-        self.engine.close_ground.assert_called_once()
-        self.engine.unweld_relay.assert_called_once()
+        self.engine.clear_faults.assert_called_once()
         self.evse.clear_errors.assert_not_called()
 
 

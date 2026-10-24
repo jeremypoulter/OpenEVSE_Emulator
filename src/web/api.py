@@ -900,22 +900,14 @@ ws.onmessage = (event) => {
                 # Fault the board, not the model: the firmware has to notice
                 # and decide, and the mirror would overwrite anything set on
                 # self.evse.
-                inject = {
+                {
                     "gfci": self.engine.trip_gfi,
                     "no_ground": self.engine.open_ground,
                     "stuck_relay": self.engine.weld_relay,
-                }.get(data["error"])
-                if inject is None:
-                    return (
-                        jsonify(
-                            {
-                                "error": "%s cannot be simulated with the firmware "
-                                "engine" % data["error"]
-                            }
-                        ),
-                        400,
-                    )
-                inject()
+                    "diode_check": self.engine.fail_diode,
+                    "over_temp": self.engine.overheat,
+                    "gfi_self_test": self.engine.break_gfi_selftest,
+                }[data["error"]]()
             else:
                 self.evse.trigger_error(error_flag)
             self._broadcast_error(data["error"])
@@ -925,9 +917,7 @@ ws.onmessage = (event) => {
         @self.app.route("/api/errors/clear", methods=["POST"])
         def clear_errors():
             if self.engine:
-                self.engine.clear_gfi()
-                self.engine.close_ground()
-                self.engine.unweld_relay()
+                self.engine.clear_faults()
             else:
                 self.evse.clear_errors()
             self._broadcast_status()

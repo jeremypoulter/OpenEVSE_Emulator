@@ -54,6 +54,15 @@ _SIBLING_CHECKOUT = os.path.join(
 )
 
 
+# EVSE states the firmware latches until it is reset: vent required, then every
+# fault from the diode check through over-current.
+FAULT_STATES = frozenset(range(0x04, 0x0C))
+
+# What "over temperature" presents: tenths of a degree C, past the firmware's
+# panic threshold on every board.
+OVERHEAT_C10 = 950
+
+
 class EngineError(RuntimeError):
     """The firmware could not be started or stopped talking."""
 
@@ -129,14 +138,22 @@ class FirmwareEngine:
         self._lock = threading.Lock()
         # One command in flight at a time: serial traffic and web requests
         # (heartbeat_status) both come through process_command().
-        self._cmd_lock = threading.Lock()
+        # Re-entrant because restart() holds it across start(), which sends
+        # commands of its own.
+        self._cmd_lock = threading.RLock()
         self._threads: list[threading.Thread] = []
         self._async_callback: Optional[Callable[[str], None]] = None
         self._pending_async: list = []
 
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        """Forget everything about a firmware run: what it has told us, and
+        the simulated board wired to it. A new run starts from a clean bench,
+        which is also how a power cycle clears a latched fault."""
         # what the firmware has told us
-        self.hello: dict = {}
-        self.outputs: dict = {}
+        self.hello = {}
+        self.outputs = {}
         self.pilot: Optional[tuple] = None
         self.evse_state: Optional[int] = None
         self.pilot_state: Optional[int] = None
@@ -146,12 +163,19 @@ class FirmwareEngine:
         # from $GV, so the web model can report the firmware's own versions
         self.firmware_version: Optional[str] = None
         self.protocol_version: Optional[str] = None
-        self._responses: list = []
+        self._responses = []
 
         # simulated board wiring
         self.gfi_detector = True
         self.ground_present = True
         self.relay_welded = False
+        # The vehicle's diode is shorted or absent: the pilot's low half no
+        # longer sits below the firmware's diode-check threshold.
+        self.diode_failed = False
+        # The detector no longer answers the test coil, so the next GFI
+        # self-test (the start of a charge) fails.
+        self.gfi_selftest_broken = False
+        self._current_band: Optional[str] = None
         self._last_band: Optional[str] = None
         self._last_current_counts = -1
 
@@ -308,7 +332,7 @@ class FirmwareEngine:
             self.outputs[name] = val
 
         # React outside the lock; these write to the socket.
-        if name == "GFITEST" and self.gfi_detector:
+        if name == "GFITEST" and self.gfi_detector and not self.gfi_selftest_broken:
             # The test coil runs through the detector on real hardware, so the
             # detector follows the coil -- every self-test, not just the first,
             # and held for as long as the coil is energised so the firmware has
@@ -348,20 +372,26 @@ class FirmwareEngine:
     def set_pilot_band(self, band: str) -> None:
         """Present the pilot as the square wave it physically is: the band's
         positive plateau paired with the negative half."""
+        self._current_band = band
         if band == self._last_band:
             return
         self._last_band = band
         b = PILOT_BANDS.get(self.board or "oev6", PILOT_BANDS["oev6"])
-        self._send("ADC PILOT_SENSE %d %d" % (b[band], b["NEG"]))
+        # With a working diode the low half sits near zero. Without one it
+        # tracks the high half, which is what the firmware's check looks for.
+        low = b[band] if self.diode_failed else b["NEG"]
+        self._send("ADC PILOT_SENSE %d %d" % (b[band], low))
 
     def set_charge_current(self, amps: float) -> None:
-        """Feed the ammeter. readAmmeter() derives RMS from peak-to-peak, so
-        the CT is presented as a swing about mid-scale."""
+        """Feed the ammeter. The CT is presented as a swing about mid-scale."""
         adc_max = int(self.hello.get("adc_max", 1023))
         scale = adc_max / 1023.0
-        # DEFAULT_CURRENT_SCALE_FACTOR is mA per ADC count on OEV6; the peak
-        # is what the firmware measures, hence the sqrt(2).
-        counts = int(amps * 1000.0 / 220.0 * 1.414 * scale)
+        # DEFAULT_CURRENT_SCALE_FACTOR is mA per ADC count on OEV6. The bench
+        # alternates the two levels on successive reads, so the firmware's
+        # sum-of-squares sees a square wave, whose RMS is its full amplitude.
+        # (A sine's peak would need a sqrt(2) on top of this; using one here
+        # reads 41% high and trips over-current after ten seconds.)
+        counts = int(amps * 1000.0 / 220.0 * scale)
         counts = max(0, min(counts, adc_max // 2 - 1))
         if counts == self._last_current_counts:
             return
@@ -403,6 +433,62 @@ class FirmwareEngine:
     def close_ground(self) -> None:
         self.ground_present = True
         self._send_aclines()
+
+    def fail_diode(self) -> None:
+        self.diode_failed = True
+        self._resend_pilot()
+
+    def restore_diode(self) -> None:
+        self.diode_failed = False
+        self._resend_pilot()
+
+    def _resend_pilot(self) -> None:
+        """Present the pilot again so a change to its low half takes effect
+        without waiting for the vehicle to change state."""
+        band = self._current_band
+        self._last_band = None
+        if band:
+            self.set_pilot_band(band)
+
+    def break_gfi_selftest(self) -> None:
+        self.gfi_selftest_broken = True
+
+    def fix_gfi_selftest(self) -> None:
+        self.gfi_selftest_broken = False
+
+    def overheat(self) -> None:
+        """An enclosure sensor reads far past the panic threshold."""
+        self._send("TEMP MCP9808 %d" % OVERHEAT_C10)
+
+    def cool(self) -> None:
+        self._send("TEMP MCP9808 OFF")
+
+    def clear_faults(self) -> None:
+        """Undo every injected fault, and recover the firmware if it latched.
+
+        The firmware holds most faults until the unit is reset or power
+        cycled, and the native build has no reset of its own ($FR is a no-op
+        there). So when it is sitting in a fault state it is restarted, as
+        pulling the power would; it boots through its self tests again and
+        announces itself with $AB. Otherwise only the bench is put right.
+        """
+        faulted = self.evse_state in FAULT_STATES
+        self.clear_gfi()
+        self.close_ground()
+        self.unweld_relay()
+        self.restore_diode()
+        self.cool()
+        self.fix_gfi_selftest()
+        if faulted:
+            self.restart()
+
+    def restart(self) -> None:
+        """Power-cycle the firmware: a new process on the same EEPROM, so
+        settings and trip counters persist as they would on a real unit."""
+        with self._cmd_lock:
+            self._teardown()
+            self._reset_state()
+            self.start()
 
     def weld_relay(self) -> None:
         self.relay_welded = True
@@ -479,7 +565,13 @@ class FirmwareEngine:
         for line in pending:
             cb(line)
 
-    def process_command(self, data: str, timeout: float = 5.0) -> str:
+    # The firmware can legitimately go quiet: on over-temperature it tells the
+    # vehicle to pause and then holds its main loop for 5 seconds before opening
+    # the contactor, answering nothing meanwhile. Waiting only that long would
+    # report a timeout right at the edge, so allow comfortably longer.
+    RAPI_TIMEOUT_SEC = 10.0
+
+    def process_command(self, data: str, timeout: float = RAPI_TIMEOUT_SEC) -> str:
         """Forward a RAPI command to the firmware and return its reply.
 
         Signature matches RAPIHandler.process_command so the serial port does

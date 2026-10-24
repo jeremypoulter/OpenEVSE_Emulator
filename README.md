@@ -249,10 +249,27 @@ docker run -p 8080:8080 -p 8023:8023 \
 A freshly booted firmware holds charging until it receives `$SB` (clear boot
 lock), as on real hardware; the WiFi gateway sends it for you.
 
-The web API's error-simulation endpoints fault the simulated *board* in engine
-mode (`gfci`, `no_ground` and `stuck_relay`), and the firmware decides what to
-do about it. Faults the firmware has no input for (`over_temp`, `diode_check`,
-`gfi_self_test`) are refused rather than faked.
+### Error simulation
+
+The error buttons (and `POST /api/errors/trigger`) fault the simulated *board*
+in engine mode, and the firmware decides what to do about it. Every error type
+is available:
+
+| Error | What the emulator does to the board | What you see |
+| --- | --- | --- |
+| `gfci` | Raises the GFI trip line | GFCI fault, contactor opens |
+| `no_ground` | Drops the ground-sense lines | No-ground fault |
+| `stuck_relay` | Keeps mains on the load side of an open contactor | Stuck-relay fault, after the vehicle leaves and the firmware has tried to open it (about 20 s) |
+| `diode_check` | Lifts the pilot's low half, as a shorted vehicle diode would | Diode-check fault |
+| `over_temp` | Supplies a very hot enclosure sensor reading | Over-temperature fault; the firmware tells the vehicle to pause and holds RAPI for 5 s before opening the contactor |
+| `gfi_self_test` | Stops the detector answering the test coil | Self-test fault when the next charge starts |
+
+Most of these are latched by the firmware until the unit is reset, and the
+native build has no reset of its own. **Clear All Errors** therefore undoes
+the fault on the board and, if the firmware has latched, restarts it as a
+power cycle would: it runs its self tests again, announces itself with `$AB`,
+and is boot-locked until a client sends `$SB`, as after power-on. Settings and
+trip counters survive, since the EEPROM is a file.
 
 The emulator reports which engine it started:
 

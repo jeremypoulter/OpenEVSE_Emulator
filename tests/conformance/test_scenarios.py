@@ -13,8 +13,12 @@ import pytest
 STATE_A = 0x01
 STATE_B = 0x02
 STATE_C = 0x03
+STATE_DIODE_CHECK_FAILED = 0x05
 STATE_GFCI = 0x06
 STATE_NO_GROUND = 0x07
+STATE_STUCK_RELAY = 0x08
+STATE_GFI_TEST_FAILED = 0x09
+STATE_OVER_TEMPERATURE = 0x0A
 STATE_DISABLED = 0xFF
 
 
@@ -118,6 +122,95 @@ def test_missing_ground_is_a_fault(session):
     assert response.status_code == 200
     backend.wait_for(
         lambda: backend.evse_state() == STATE_NO_GROUND, what="no-ground fault"
+    )
+
+
+def _trigger(backend, error):
+    response = backend.api().post(
+        "/api/errors/trigger",
+        data=json.dumps({"error": error}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.get_json()
+
+
+def _stops_drawing(backend):
+    backend.wait_for(
+        lambda: backend.ev.get_status()["actual_charge_rate_kw"] == 0,
+        what="vehicle to stop drawing",
+    )
+
+
+def test_over_temperature_is_a_fault(session):
+    backend = session
+    _charge(backend)
+    _trigger(backend, "over_temp")
+    backend.wait_for(
+        lambda: backend.evse_state() == STATE_OVER_TEMPERATURE, what="over-temp fault"
+    )
+    _stops_drawing(backend)
+
+
+def test_failed_diode_check_is_a_fault(session):
+    backend = session
+    _enable(backend)
+    backend.plug_in()
+    _trigger(backend, "diode_check")
+    backend.wait_for(
+        lambda: backend.evse_state() == STATE_DIODE_CHECK_FAILED,
+        what="diode check fault",
+    )
+
+
+def test_failed_gfi_self_test_blocks_the_next_charge(session):
+    """The self test runs as a charge starts, so breaking the detector shows
+    up when the vehicle next asks for power, not before."""
+    backend = session
+    _enable(backend)
+    _trigger(backend, "gfi_self_test")
+    backend.plug_in()
+    backend.wait_for(
+        lambda: backend.evse_state() == STATE_GFI_TEST_FAILED,
+        what="GFI self-test fault",
+    )
+    _stops_drawing(backend)
+
+
+def test_welded_relay_is_found_when_the_firmware_opens_it(session):
+    """A welded contactor only shows when the firmware commands it open and
+    still sees mains downstream, so on the firmware the fault appears once the
+    vehicle leaves; the Python model reports it at once."""
+    backend = session
+    _charge(backend)
+    _trigger(backend, "stuck_relay")
+    backend.unplug()
+    backend.wait_for(
+        lambda: backend.announced_state() == STATE_STUCK_RELAY,
+        timeout=40,
+        what="stuck relay fault",
+    )
+
+
+@pytest.mark.parametrize("error", ["gfci", "no_ground", "over_temp", "diode_check"])
+def test_clearing_errors_lets_charging_resume(session, error):
+    """Every fault the firmware latches has to be recoverable from the UI, or
+    one click on an error button would wedge the emulator until restart."""
+    backend = session
+    _charge(backend)
+    _trigger(backend, error)
+    backend.wait_for(
+        lambda: backend.evse_state() not in (STATE_A, STATE_B, STATE_C),
+        timeout=25,
+        what="%s fault" % error,
+    )
+
+    response = backend.api().post("/api/errors/clear")
+    assert response.status_code == 200
+
+    # A restarted firmware is boot-locked again, as at power-on.
+    _enable(backend)
+    backend.wait_for(
+        lambda: backend.evse_state() == STATE_C, timeout=30, what="charging again"
     )
 
 

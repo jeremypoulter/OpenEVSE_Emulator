@@ -21,6 +21,7 @@ quietly turn it green.
 import copy
 import os
 import sys
+import threading
 import time
 
 import pytest
@@ -106,6 +107,8 @@ class Harness:
         self.emu = emulator
         self.name = name
         self.is_engine = emulator.engine is not None
+        self._sim_stop = threading.Event()
+        self._sim_thread = None
 
     # -- the wire ----------------------------------------------------------
 
@@ -132,12 +135,33 @@ class Harness:
     def api(self):
         return self.emu.web_api.app.test_client()
 
+    def start_simulation(self) -> None:
+        """Run the simulation in its own thread, as the real emulator does.
+
+        The firmware blocks in places -- waiting for the current to fall
+        before opening a contactor, say -- and what it waits on is the
+        ammeter this simulation feeds. Stepping only between RAPI calls would
+        deadlock there, with the test blocked in a command and nothing
+        advancing the vehicle.
+        """
+        self.emu.last_update_time = time.time()
+
+        def run():
+            while not self._sim_stop.is_set():
+                self.emu.catch_up()
+                time.sleep(0.05)
+
+        self._sim_thread = threading.Thread(target=run, daemon=True)
+        self._sim_thread.start()
+
     def step(self, seconds: float = 0.1) -> None:
-        """Advance the simulation. The firmware runs in real time, so give it
-        a moment to react as well."""
-        self.emu.advance(seconds)
+        """Let the simulation move on. The Python EVSE is stepped by hand, so
+        a test is deterministic; the firmware runs in real time on its own
+        clock, so there it is enough to give it a moment."""
         if self.is_engine:
             time.sleep(0.05)
+        else:
+            self.emu.advance(seconds)
 
     def wait_for(self, pred, timeout: float = 20.0, what: str = "condition") -> None:
         deadline = time.time() + timeout
@@ -153,6 +177,16 @@ class Harness:
         assert reply.ok, reply
         return int(reply.args[0], 16)
 
+    def announced_state(self) -> int:
+        """The EVSE state as the unit announces it (the async $AT), rather than
+        as polled. Slow detections -- a welded contactor takes the firmware
+        about 20 seconds to call -- leave it unable to answer $GS for part of
+        that time, so a poll would report a timeout instead of the state."""
+        if self.is_engine:
+            state = self.emu.engine.evse_state
+            return 0x00 if state is None else state
+        return self.evse_state()
+
     def plug_in(self, charge: bool = True) -> None:
         self.ev.connected = True
         self.ev.requesting_charge = charge
@@ -162,6 +196,9 @@ class Harness:
         self.ev.requesting_charge = False
 
     def stop(self) -> None:
+        self._sim_stop.set()
+        if self._sim_thread:
+            self._sim_thread.join(timeout=5)
         if self.emu.engine:
             self.emu.engine.stop()
 
@@ -173,6 +210,7 @@ def _build(config, name) -> Harness:
     harness = Harness(emulator, name)
     if emulator.engine:
         emulator.engine.start()
+        harness.start_simulation()
         harness.wait_for(
             lambda: emulator.engine.boot_postcode is not None, what="firmware boot"
         )
