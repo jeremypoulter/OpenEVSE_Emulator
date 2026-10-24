@@ -492,10 +492,13 @@ class RAPIHandler:
                 self.heartbeat_interval = first_param
                 self.heartbeat_current_limit = int(params[1])
                 self._hb_last_pulse = time.monotonic()
+                # Any setpoint clears a missed pulse on the controller, but only
+                # $SY 165 (or disabling) restores ampacity. So a trip that is not
+                # acknowledged first leaves the offer capped at the fallback.
+                self.heartbeat_missed = False
                 if self.heartbeat_interval == 0:
-                    # Supervision off: nothing can be missed, so any outstanding
-                    # trip and its current cap are released.
-                    self.heartbeat_missed = False
+                    # Supervision off: nothing can be missed, so the current cap
+                    # is released too.
                     self.evse.set_heartbeat_limit(None)
                 response = (
                     f"{RAPI_OK_RESPONSE} {self.heartbeat_interval} "
