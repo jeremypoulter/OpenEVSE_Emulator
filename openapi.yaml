@@ -110,6 +110,61 @@ paths:
         '409':
           description: Engine mode is running the native firmware, which cannot be changed
 
+  /api/rapi/last:
+    get:
+      tags:
+        - EVSE
+      summary: Last RAPI request and reply per command
+      description: >-
+        What the serial client (for example the WiFi firmware) was last told,
+        for each command it has sent, plus async notifications the EVSE
+        volunteered. Works in both Python and engine mode.
+      operationId: getLastRapi
+      responses:
+        '200':
+          description: The last exchange for each command
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commands:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        command:
+                          type: string
+                          example: GS
+                        kind:
+                          type: string
+                          enum: [query, set, function, test, async, other]
+                        request:
+                          type: string
+                          nullable: true
+                          description: The command as received, without checksum; null for async
+                          example: "$GS"
+                        response:
+                          type: string
+                          example: "$OK 03 5 03 0540^11"
+                        ok:
+                          type: boolean
+                          description: False if the reply was $NK
+                        args:
+                          type: array
+                          items:
+                            type: string
+                        fields:
+                          type: object
+                          description: Named values, for the commands whose replies are decoded
+                          additionalProperties: true
+                        count:
+                          type: integer
+                          description: How many times this command has been seen
+                        age_sec:
+                          type: number
+                          description: Seconds since it was last seen
+
   /api/evse/enable:
     post:
       tags:

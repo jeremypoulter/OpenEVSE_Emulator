@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Refresh status every 2 seconds
     setInterval(fetchStatus, 2000);
+    refreshRapiLast();
+    setInterval(refreshRapiLast, 2000);
 });
 
 // Initialize control event listeners
@@ -128,6 +130,20 @@ function initializeWebSocket() {
         addSerialLine('WebSocket disconnected', 'error');
     });
     
+    // Live serial traffic, when asked for: a polling client can send several
+    // commands a second, which would otherwise bury everything else.
+    socket.on('rapi', function(entry) {
+        if (!document.getElementById('serial-live').checked) {
+            return;
+        }
+        if (entry.kind === 'async') {
+            addSerialLine(`\u21d0 ${entry.response}`, 'response');
+            return;
+        }
+        addSerialLine(`\u2192 ${entry.request}`, 'command');
+        addSerialLine(`\u2190 ${entry.response}`, entry.ok ? 'response' : 'error');
+    });
+
     socket.on('state_change', function(data) {
         addSerialLine(`State changed to: ${data.state_name}`, 'info');
         updateStatus();
@@ -143,6 +159,50 @@ function initializeWebSocket() {
         addSerialLine(`Error: ${data.message}`, 'error');
         updateStatus();
     });
+}
+
+// Last request and reply seen for each RAPI command
+async function refreshRapiLast() {
+    try {
+        const response = await fetch('/api/rapi/last');
+        const data = await response.json();
+        renderRapiLast(data.commands || []);
+    } catch (error) {
+        console.error('Failed to fetch RAPI monitor:', error);
+    }
+}
+
+function renderRapiLast(commands) {
+    const body = document.getElementById('rapi-last-body');
+    body.textContent = '';
+    if (commands.length === 0) {
+        const row = body.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 5;
+        cell.className = 'rapi-empty';
+        cell.textContent = 'No serial traffic yet';
+        return;
+    }
+    for (const entry of commands) {
+        const row = body.insertRow();
+        // A polled command that has gone quiet is the thing worth noticing
+        if (entry.kind === 'query' && entry.age_sec > 10) {
+            row.className = 'stale';
+        } else if (!entry.ok) {
+            row.className = 'nk';
+        }
+        const decoded = Object.entries(entry.fields || {})
+            .map(([name, value]) => `${name}=${value}`)
+            .join('  ');
+        // textContent throughout: these are bytes from the serial client
+        row.insertCell().textContent = `$${entry.command}`;
+        const reply = row.insertCell();
+        reply.className = 'rapi-reply';
+        reply.textContent = entry.response;
+        row.insertCell().textContent = decoded;
+        row.insertCell().textContent = `${entry.age_sec} s`;
+        row.insertCell().textContent = entry.count;
+    }
 }
 
 // Fetch current status from API

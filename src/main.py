@@ -25,6 +25,7 @@ from emulator.engine import EngineError, FirmwareEngine, find_firmware  # noqa: 
 from emulator.evse import EVSEStateMachine  # noqa: E402
 from emulator.ev import EVSimulator  # noqa: E402
 from emulator.rapi import RAPIHandler  # noqa: E402
+from emulator.rapi_monitor import RapiMonitor  # noqa: E402
 from emulator.serial_port import VirtualSerialPort  # noqa: E402
 from emulator.telemetry import build_reporter  # noqa: E402
 from web.api import WebAPI  # noqa: E402
@@ -118,6 +119,9 @@ class OpenEVSEEmulator:
         else:
             self.rapi = RAPIHandler(self.evse, self.ev)
 
+        # What the serial client was last told, in either mode
+        self.rapi_monitor = RapiMonitor()
+
         serial_config = self.config["serial"]
         self.serial_port = VirtualSerialPort(
             mode=serial_config["mode"],
@@ -141,6 +145,7 @@ class OpenEVSEEmulator:
             reporter=self.reporter,
             reporting_config=reporting_config,
             engine=self.engine,
+            rapi_monitor=self.rapi_monitor,
             heartbeat_status=self.rapi.heartbeat_status,
             reset_hook=self._on_reset,
             scale_hook=self.catch_up,
@@ -336,6 +341,7 @@ class OpenEVSEEmulator:
         """
         # Process RAPI command
         response = self.rapi.process_command(data)
+        self.rapi_monitor.record_exchange(data, response)
 
         # Log to console
         print(f"RAPI: {data.strip()} -> {response.strip()}")
@@ -344,6 +350,7 @@ class OpenEVSEEmulator:
 
     def _send_async_message(self, message: str):
         """Send async message through serial port."""
+        self.rapi_monitor.record_async(message)
         if self.serial_port:
             self.serial_port.write(message)
 

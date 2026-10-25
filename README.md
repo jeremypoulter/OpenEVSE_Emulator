@@ -188,6 +188,26 @@ If the device isn't present at startup, or is unplugged while running, the
 emulator retries opening it using the same reconnect backoff/timeout
 settings as TCP mode.
 
+### Monitoring what the client was told
+
+Whatever sits on the serial port -- the WiFi firmware, say -- polls the EVSE
+constantly. The **RAPI Serial Monitor** panel shows, per command, the last
+request and reply, the reply decoded into named fields where the command is a
+common one (`$GS`, `$GG`, `$GE`, `$GC`, `$GF`, `$GP`, `$GA`, `$GV`), how long
+ago the client last asked, and how many times. Async notifications (`$AT`,
+`$AB`) are listed too. It works the same with the Python EVSE and in engine
+mode, so when the client's view disagrees with the emulator's, this is the
+client's view. A polled command whose age keeps growing is a client that has
+stopped asking.
+
+Tick **Show live traffic below** to stream every request and reply into the
+log as it happens. It is off by default because a polling client can send
+several commands a second.
+
+```bash
+curl http://localhost:8080/api/rapi/last
+```
+
 ### WebSocket
 
 Subscribe to real-time updates:

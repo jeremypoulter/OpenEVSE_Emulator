@@ -149,6 +149,7 @@ class WebAPI:
         reporter=None,
         reporting_config: dict | None = None,
         engine=None,
+        rapi_monitor=None,
         heartbeat_status: Optional[Callable[[], dict]] = None,
         reset_hook=None,
         scale_hook=None,
@@ -164,6 +165,8 @@ class WebAPI:
             reporter: Optional TelemetryReporter for the reporting endpoints
             reporting_config: The 'reporting' config the reporter was built
                 from, used as the base for runtime reconfiguration
+            rapi_monitor: Optional RapiMonitor; its entries are served at
+                /api/rapi/last and streamed to the UI as they happen
             engine: Optional FirmwareEngine; when set, error simulation acts
                 on the real firmware's simulated board instead of self.evse
             heartbeat_status: Optional callable returning the RAPI heartbeat
@@ -182,6 +185,7 @@ class WebAPI:
         self.reporter = reporter
         self.reporting_config = reporting_config or {}
         self.engine = engine
+        self.rapi_monitor = rapi_monitor
         self.reset_hook = reset_hook
         self.scale_hook = scale_hook
         # Simulated seconds per wall-clock second, read by the simulation loop
@@ -202,6 +206,9 @@ class WebAPI:
         self.socketio = SocketIO(
             self.app, cors_allowed_origins="*", async_mode="gevent"
         )
+
+        if self.rapi_monitor is not None:
+            self.rapi_monitor.on_record = self._broadcast_rapi
 
         # Register routes
         self._register_routes()
@@ -979,6 +986,12 @@ ws.onmessage = (event) => {
             return jsonify({"success": True, "scale": scale})
 
         # Combined status endpoint
+        @self.app.route("/api/rapi/last", methods=["GET"])
+        def get_last_rapi():
+            """The last request and reply seen for each RAPI command."""
+            commands = self.rapi_monitor.snapshot() if self.rapi_monitor else []
+            return jsonify({"commands": commands})
+
         @self.app.route("/api/status", methods=["GET"])
         def get_combined_status():
             return jsonify({"evse": self._evse_status(), "ev": self.ev.get_status()})
@@ -1035,6 +1048,15 @@ ws.onmessage = (event) => {
         ev_status = self.ev.get_status()
 
         self.socketio.emit("status_update", {"evse": evse_status, "ev": ev_status})
+
+    def _broadcast_rapi(self, entry: dict):
+        """Stream one piece of RAPI traffic to the UI. Called from whichever
+        thread handled the serial data, so it must never let a failed emit
+        break the serial path."""
+        try:
+            self.socketio.emit("rapi", entry)
+        except Exception:  # noqa: BLE001 - monitoring is best effort
+            pass
 
     def _broadcast_error(self, error_type: str):
         """Broadcast error event via WebSocket."""

@@ -99,3 +99,28 @@ def test_web_api_version_matches_the_wire(backend):
     firmware, protocol = backend.rapi("$GV").args[:2]
     reported = backend.api().get("/api/evse/version").get_json()
     assert reported == {"firmware": firmware, "protocol": protocol}
+
+
+def test_the_monitor_reports_what_the_client_was_told(backend):
+    """The last reply the serial client received is what the monitor shows,
+    whichever EVSE is behind the port."""
+    backend.rapi("$FD")
+    state = backend.rapi("$GS")
+    backend.rapi("$SC 12")
+
+    monitored = {e["command"]: e for e in backend.emu.rapi_monitor.snapshot()}
+    assert monitored["GS"]["response"] == state.raw.strip()
+    assert monitored["GS"]["fields"]["state"] == 0xFF  # disabled, as the client saw
+    assert monitored["SC"]["kind"] == "set"
+    assert monitored["SC"]["ok"]
+    assert monitored["FD"]["kind"] == "function"
+
+    served = backend.api().get("/api/rapi/last").get_json()["commands"]
+    assert {e["command"] for e in served} >= {"GS", "SC", "FD"}
+
+
+def test_the_monitor_records_async_notifications(backend):
+    backend.emu._send_async_message("$AT 03 03 24 0540^12\r")
+    entry = {e["command"]: e for e in backend.emu.rapi_monitor.snapshot()}["AT"]
+    assert entry["kind"] == "async"
+    assert entry["fields"]["state"] == 3
