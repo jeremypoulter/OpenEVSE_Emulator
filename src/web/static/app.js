@@ -22,6 +22,47 @@ function syncSlider(id, value) {
     document.getElementById(`${id}-value`).textContent = value;
 }
 
+// Which EV simulator buttons make sense right now, and for each one that does
+// not, why. A button that does nothing teaches nothing; greyed out with the
+// reason as its tooltip, it says what has to happen first. Kept free of the
+// DOM so the rules can be tested on their own.
+function evButtonStates(ev) {
+    const connected = Boolean(ev.connected);
+    const requesting = Boolean(ev.requesting_charge);
+    // In battery mode a vehicle at its charge limit stops asking at once, so
+    // asking again cannot start anything. Direct mode ignores the limit.
+    const atLimit = !ev.direct_mode && ev.soc >= (ev.charge_limit_soc ?? 100);
+
+    const state = (enabled, reason) => ({ enabled, reason: enabled ? '' : reason });
+    return {
+        connect: state(!connected, 'The EV is already connected'),
+        disconnect: state(connected, 'The EV is not connected'),
+        requestCharge: state(
+            connected && !requesting && !atLimit,
+            !connected ? 'Connect the EV first'
+                : requesting ? 'The EV is already requesting a charge'
+                : 'The battery has reached its charge limit'),
+        stopCharge: state(
+            connected && requesting,
+            !connected ? 'The EV is not connected' : 'The EV is not requesting a charge'),
+    };
+}
+
+function applyEvButtonStates(ev) {
+    const states = evButtonStates(ev);
+    const buttons = {
+        connect: 'btn-connect',
+        disconnect: 'btn-disconnect',
+        requestCharge: 'btn-request-charge',
+        stopCharge: 'btn-stop-charge',
+    };
+    for (const [name, id] of Object.entries(buttons)) {
+        const button = document.getElementById(id);
+        button.disabled = !states[name].enabled;
+        button.title = states[name].reason;
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeControls();
@@ -366,6 +407,8 @@ function updateDisplay() {
         document.getElementById('firmware-version-label').textContent = 'Firmware Version';
     }
     document.getElementById('protocol-version').textContent = evse.protocol_version || '-';
+
+    applyEvButtonStates(ev);
 
     // EV sliders. SoC does move on its own while charging, so it keeps
     // refreshing - just not out from under a drag.

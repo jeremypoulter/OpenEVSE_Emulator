@@ -208,6 +208,16 @@ header .subtitle {
     transform: translateY(0);
 }
 
+/* Not valid in the current state: the title says what has to happen first */
+.btn:disabled,
+.btn:disabled:hover,
+.btn:disabled:active {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 .btn-primary {
     background: #007bff;
     color: white;
