@@ -314,3 +314,38 @@ class TestMergedWithTestControls:
         rapi.heartbeat_tick()
         assert rapi.heartbeat_missed is False
         assert rapi.evse.offered_current_amps == 32
+
+
+class TestSetpointDuringATrip:
+    """A setpoint clears the controller's trip flag but does not restore ampacity.
+
+    Only $SY 165 (or disabling) restores the offer. The ESP32 firmware therefore
+    acknowledges before it sends a setpoint; these tests pin why that matters.
+    """
+
+    def test_setpoint_clears_the_trip_but_keeps_the_fallback_cap(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        assert rapi.heartbeat_status()["missed"] is True
+        assert rapi.evse.offered_current_amps == 6
+
+        assert rapi.process_command("$SY 1 6").startswith("$OK")
+        assert rapi.heartbeat_status()["missed"] is False
+        assert rapi.evse.offered_current_amps == 6
+
+    def test_pulse_after_a_setpoint_during_a_trip_is_acknowledged_not_naked(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+        rapi.process_command("$SY 1 6")
+        assert rapi.process_command("$SY").startswith("$OK")
+
+    def test_ack_before_the_setpoint_restores_the_offer(self, rapi):
+        rapi.evse.current_capacity_amps = 32
+        rapi.process_command("$SY 1 6")
+        time.sleep(1.1)
+
+        assert rapi.process_command("$SY 165").startswith("$OK")
+        assert rapi.process_command("$SY 1 6").startswith("$OK")
+        assert rapi.evse.offered_current_amps == 32
