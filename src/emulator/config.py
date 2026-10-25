@@ -85,7 +85,7 @@ def default_config() -> dict:
         },
         "web": {"host": "0.0.0.0", "port": 8080},
         "simulation": {
-            "update_interval_ms": 1000,
+            "update_interval_ms": 100,
             "temperature_simulation": True,
             "realistic_charge_curve": True,
         },
