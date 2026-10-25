@@ -172,6 +172,9 @@ class FirmwareEngine:
         # The vehicle's diode is shorted or absent: the pilot's low half no
         # longer sits below the firmware's diode-check threshold.
         self.diode_failed = False
+        # What the enclosure sensor is presented with, in tenths of a degree C;
+        # None while nothing has been supplied (the sensor reads "not installed").
+        self.temperature_c10: Optional[int] = None
         # The detector no longer answers the test coil, so the next GFI
         # self-test (the start of a charge) fails.
         self.gfi_selftest_broken = False
@@ -462,9 +465,11 @@ class FirmwareEngine:
 
     def overheat(self) -> None:
         """An enclosure sensor reads far past the panic threshold."""
+        self.temperature_c10 = OVERHEAT_C10
         self._send("TEMP MCP9808 %d" % OVERHEAT_C10)
 
     def cool(self) -> None:
+        self.temperature_c10 = None
         self._send("TEMP MCP9808 OFF")
 
     def clear_faults(self) -> None:
@@ -664,6 +669,7 @@ class FirmwareEngine:
             evse.set_engine_state(state)
         if capacity is not None:
             evse.set_engine_capacity(capacity)
+        evse.set_engine_temperature(self.temperature_c10)
         # Report what is actually running, not the Python model's configured
         # version, which means nothing here.
         if self.firmware_version:

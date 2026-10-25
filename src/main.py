@@ -113,6 +113,8 @@ class OpenEVSEEmulator:
                 wait_ms=engine_config.get("wait_ms", 10000),
             )
             self.rapi = self.engine
+            # The firmware decides every fault; self.evse only mirrors it
+            self.evse.set_engine_mode()
         else:
             self.rapi = RAPIHandler(self.evse, self.ev)
 

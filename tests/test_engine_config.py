@@ -175,3 +175,22 @@ class TestEngineStatusForTheUI:
         html = client.get("/").get_data(as_text=True)
         assert 'id="firmware-version-native"' in html
         assert 'id="firmware-version"' in html
+
+
+def test_injected_temperature_reaches_the_web_model():
+    """The over-temperature button feeds the firmware a hot sensor; the UI
+    should show that temperature, and go back to ambient once cleared."""
+    from src.emulator.engine import FirmwareEngine
+    from src.emulator.evse import AMBIENT_TEMP
+
+    engine = FirmwareEngine(binary="unused")  # never started: no socket to write to
+    evse = EVSEStateMachine()
+    evse.set_engine_mode()
+
+    engine.overheat()
+    engine.mirror_into(evse)
+    assert evse.get_status()["temperature_mcp"] == 95.0
+
+    engine.cool()
+    engine.mirror_into(evse)
+    assert evse.get_status()["temperature_mcp"] == AMBIENT_TEMP / 10.0

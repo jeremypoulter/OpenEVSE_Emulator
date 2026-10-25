@@ -177,6 +177,28 @@ def test_failed_gfi_self_test_blocks_the_next_charge(session):
     _stops_drawing(backend)
 
 
+def test_a_long_charge_is_not_cut_short(session):
+    """Run well past 800 s of charging, which is when the Python model's own
+    thermal simulation reaches its limit. The firmware has no such limit, so in
+    engine mode the charge must carry on. (The firmware runs in real time, so
+    the vehicle's clock is sped up to get there.)"""
+    backend = session
+    if not backend.is_engine:
+        pytest.skip("the Python model simulates heating by design")
+    _charge(backend)
+    soc_before = backend.ev.get_status()["soc"]
+    backend.emu.web_api.time_scale = 40.0  # 900 simulated seconds in ~23 s
+
+    deadline = time.time() + 25
+    while time.time() < deadline:
+        assert backend.announced_state() == STATE_C
+        assert backend.ev.get_status()["actual_charge_rate_kw"] > 0
+        time.sleep(0.2)
+
+    # 900 s at 5.76 kW into the default 75 kWh pack is about 1.9 points
+    assert backend.ev.get_status()["soc"] - soc_before > 1.7
+
+
 @pytest.mark.parametrize("ending", ["stops_asking", "unplugs"])
 def test_a_normal_stop_is_not_a_stuck_relay(session, ending):
     """Opening the contactor after an ordinary charge must not read as welded.
