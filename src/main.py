@@ -21,9 +21,11 @@ from emulator.config import (  # noqa: E402
     apply_env_overrides,
     load_config,
 )
+from emulator.engine import EngineError, FirmwareEngine, find_firmware  # noqa: E402
 from emulator.evse import EVSEStateMachine  # noqa: E402
 from emulator.ev import EVSimulator  # noqa: E402
 from emulator.rapi import RAPIHandler  # noqa: E402
+from emulator.rapi_monitor import RapiMonitor  # noqa: E402
 from emulator.serial_port import VirtualSerialPort  # noqa: E402
 from emulator.telemetry import build_reporter  # noqa: E402
 from web.api import WebAPI  # noqa: E402
@@ -88,7 +90,37 @@ class OpenEVSEEmulator:
             reporting_config = {}
             self.reporter = build_reporter(self.ev, reporting_config)
 
-        self.rapi = RAPIHandler(self.evse, self.ev)
+        # Engine mode replaces the Python state machine and RAPI handler with
+        # the real firmware. Everything else -- the EV model, the serial port,
+        # the web UI -- carries on unchanged; self.evse becomes a mirror of
+        # what the firmware reports rather than a simulation in its own right.
+        engine_config = self.config.get("engine", {})
+        self.engine = None
+        if engine_config.get("enabled") or engine_config.get("binary"):
+            binary = engine_config.get("binary") or find_firmware(
+                engine_config.get("board") or None
+            )
+            if not binary:
+                raise EngineError(
+                    "engine mode could not find a native firmware build. Set "
+                    "'engine.binary' (or --engine-binary), set "
+                    "$OPENEVSE_NATIVE_DIR, or build one with "
+                    "'pio run -e native_oev6' in a sibling open_evse checkout"
+                )
+            self.engine = FirmwareEngine(
+                binary=binary,
+                board=engine_config.get("board") or None,
+                eeprom=engine_config.get("eeprom") or None,
+                wait_ms=engine_config.get("wait_ms", 10000),
+            )
+            self.rapi = self.engine
+            # The firmware decides every fault; self.evse only mirrors it
+            self.evse.set_engine_mode()
+        else:
+            self.rapi = RAPIHandler(self.evse, self.ev)
+
+        # What the serial client was last told, in either mode
+        self.rapi_monitor = RapiMonitor()
 
         serial_config = self.config["serial"]
         self.serial_port = VirtualSerialPort(
@@ -112,6 +144,8 @@ class OpenEVSEEmulator:
             port=web_config["port"],
             reporter=self.reporter,
             reporting_config=reporting_config,
+            engine=self.engine,
+            rapi_monitor=self.rapi_monitor,
             heartbeat_status=self.rapi.heartbeat_status,
             reset_hook=self._on_reset,
             scale_hook=self.catch_up,
@@ -137,10 +171,28 @@ class OpenEVSEEmulator:
         print("OpenEVSE Emulator v1.0.0")
         print("=" * 60)
 
+        if self.engine:
+            print("\nStarting firmware engine...")
+            try:
+                self.engine.start()
+            except EngineError as e:
+                print(f"Failed to start firmware engine: {e}")
+                return False
+            board = self.engine.board
+            version = self.engine.hello.get("version", "unknown")
+            # Don't wait for the first simulation step: the web API is about
+            # to come up and should already report the firmware, not the model.
+            self.engine.mirror_into(self.evse)
+            print(f"Engine: {self.engine.binary}")
+            print(f"        board={board} version={version}")
+
         # Start virtual serial port
         print("\nStarting virtual serial port...")
         if not self.serial_port.start(self._handle_serial_data):
             print("Failed to start serial port")
+            self.serial_port.stop()
+            if self.engine:
+                self.engine.stop()
             return False
 
         print(f"Serial port: {self.serial_port.get_port_info()}")
@@ -188,6 +240,8 @@ class OpenEVSEEmulator:
         if self.web_api.reporter:
             self.web_api.reporter.stop()
         self.serial_port.stop()
+        if self.engine:
+            self.engine.stop()
         print("Emulator stopped.")
 
     def _simulation_loop(self):
@@ -237,24 +291,41 @@ class OpenEVSEEmulator:
 
     def _step(self, delta_time: float) -> None:
         """Run one simulation step of delta_time simulated seconds."""
-        # Update EV pilot state and get what EVSE should see
-        ev_pilot_state = self.ev.get_pilot_resistance()
+        if self.engine:
+            # The firmware decides. Present the vehicle to its inputs and
+            # adopt whatever it reports; nothing here works out what the
+            # state ought to be, which is the point of engine mode. The
+            # firmware also supervises its own heartbeat.
+            self.engine.apply_ev(self.ev)
+            self.engine.mirror_into(self.evse)
+        else:
+            # Update EV pilot state and get what EVSE should see
+            ev_pilot_state = self.ev.get_pilot_resistance()
 
-        # Update EVSE state based on EV
-        self.evse.update_state(ev_pilot_state)
+            # Update EVSE state based on EV
+            self.evse.update_state(ev_pilot_state)
 
-        # Supervision runs on the controller's clock, even with no traffic
-        self.rapi.heartbeat_tick()
+            # Supervision runs on the controller's clock, even with no traffic
+            self.rapi.heartbeat_tick()
 
         # Get EVSE output
         evse_status = self.evse.get_status()
         offered_current = self.evse.offered_current_amps
         voltage = evse_status["voltage"] / 1000.0  # Convert to volts
 
+        # n.b. the offer is not gated on the contactor here. A vehicle asks
+        # for power by presenting state C, which in this model means it is
+        # drawing, and the firmware only closes the contactor in response --
+        # so withholding the offer until the contactor closed would deadlock
+        # in state B. The contactor gates what the *firmware* sees instead
+        # (see FirmwareEngine.apply_ev), and a fault zeroes the offer through
+        # the mirrored error state.
         # Update EV charging based on EVSE offer
         self.ev.update_charging(offered_current, voltage, delta_time)
 
-        # Update EVSE charging metrics
+        # Update EVSE charging metrics. In engine mode the firmware meters
+        # the current itself from the CT the engine feeds it, but the
+        # emulator's own energy counters still back the web UI.
         ev_status = self.ev.get_status()
         self.evse.update_charging(ev_status["actual_charge_rate_kw"], delta_time)
 
@@ -270,6 +341,7 @@ class OpenEVSEEmulator:
         """
         # Process RAPI command
         response = self.rapi.process_command(data)
+        self.rapi_monitor.record_exchange(data, response)
 
         # Log to console
         print(f"RAPI: {data.strip()} -> {response.strip()}")
@@ -278,6 +350,7 @@ class OpenEVSEEmulator:
 
     def _send_async_message(self, message: str):
         """Send async message through serial port."""
+        self.rapi_monitor.record_async(message)
         if self.serial_port:
             self.serial_port.write(message)
 

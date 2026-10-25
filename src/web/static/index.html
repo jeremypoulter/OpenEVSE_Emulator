@@ -78,12 +78,13 @@
                     <div id="service-level-value" class="readonly-value">L2 (240V)</div>
                 </div>
                 <div class="control-group readonly-row">
-                    <div class="readonly-label">Firmware Version</div>
+                    <div id="firmware-version-label" class="readonly-label">Firmware Version</div>
                     <select id="firmware-version" class="readonly-value">
                         <option value="8.2.3">8.2.3</option>
                         <option value="9.0.0">9.0.0</option>
                         <option value="9.3.0">9.3.0</option>
                     </select>
+                    <div id="firmware-version-native" class="readonly-value" style="display: none"></div>
                 </div>
                 <div class="control-group readonly-row">
                     <div class="readonly-label">Protocol Version</div>
@@ -177,6 +178,29 @@
         <!-- Serial Monitor -->
         <div class="panel serial-monitor">
             <h2>RAPI Serial Monitor</h2>
+            <p class="readonly-note">
+                What the serial client (the WiFi firmware) was last told, per command. Age is the time
+                since it last asked; a polled command with a growing age means the client has stopped asking.
+            </p>
+            <div class="rapi-table-wrap">
+                <table class="rapi-table" id="rapi-last">
+                    <thead>
+                        <tr>
+                            <th>Command</th>
+                            <th>Last reply</th>
+                            <th>Decoded</th>
+                            <th>Age</th>
+                            <th>Count</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rapi-last-body">
+                        <tr><td colspan="5" class="rapi-empty">No serial traffic yet</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <label class="serial-live">
+                <input type="checkbox" id="serial-live"> Show live traffic below
+            </label>
             <div class="serial-output" id="serial-output">
                 <div class="serial-line info">OpenEVSE Emulator - Serial Monitor Active</div>
             </div>

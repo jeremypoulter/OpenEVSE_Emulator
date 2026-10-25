@@ -36,6 +36,41 @@ Examples:
         """,
     )
 
+    # Engine mode: run the real safety firmware instead of emulating it
+    parser.add_argument(
+        "--engine",
+        dest="engine_enabled",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Run the real firmware as the EVSE. The binary is found from "
+        "--engine-binary, or for the chosen --engine-board in "
+        "$OPENEVSE_NATIVE_DIR or a sibling open_evse checkout.",
+    )
+    parser.add_argument(
+        "--engine-binary",
+        dest="engine_binary",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Run the natively-built OpenEVSE firmware as the EVSE, instead of "
+        "the Python state machine. Path to the binary built in the "
+        "open_evse repository with 'pio run -e native_oev6'.",
+    )
+    parser.add_argument(
+        "--engine-board",
+        dest="engine_board",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Board the firmware presents as: oev6 or nxt (default: oev6, or "
+        "whatever --engine-binary reports)",
+    )
+    parser.add_argument(
+        "--engine-eeprom",
+        dest="engine_eeprom",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="File backing the firmware's EEPROM, so settings persist",
+    )
+
     # Config file
     parser.add_argument(
         "--config",

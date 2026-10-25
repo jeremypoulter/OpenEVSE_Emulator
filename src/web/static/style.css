@@ -208,6 +208,16 @@ header .subtitle {
     transform: translateY(0);
 }
 
+/* Not valid in the current state: the title says what has to happen first */
+.btn:disabled,
+.btn:disabled:hover,
+.btn:disabled:active {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 .btn-primary {
     background: #007bff;
     color: white;
@@ -330,6 +340,45 @@ select:focus {
 /* Serial Monitor */
 .serial-monitor {
     grid-column: 1 / -1;
+}
+
+.rapi-table-wrap {
+    overflow-x: auto;
+    margin-bottom: 10px;
+}
+
+.rapi-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: monospace;
+    font-size: 0.85em;
+}
+
+.rapi-table th,
+.rapi-table td {
+    text-align: left;
+    padding: 4px 8px;
+    border-bottom: 1px solid #e3e6ea;
+    white-space: nowrap;
+}
+
+.rapi-table td.rapi-empty {
+    color: #888;
+    font-style: italic;
+}
+
+.rapi-table tr.stale td {
+    color: #b45309;
+}
+
+.rapi-table tr.nk td.rapi-reply {
+    color: #c0392b;
+}
+
+.serial-live {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 0.9em;
 }
 
 .serial-output {

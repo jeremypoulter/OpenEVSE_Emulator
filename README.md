@@ -188,6 +188,26 @@ If the device isn't present at startup, or is unplugged while running, the
 emulator retries opening it using the same reconnect backoff/timeout
 settings as TCP mode.
 
+### Monitoring what the client was told
+
+Whatever sits on the serial port -- the WiFi firmware, say -- polls the EVSE
+constantly. The **RAPI Serial Monitor** panel shows, per command, the last
+request and reply, the reply decoded into named fields where the command is a
+common one (`$GS`, `$GG`, `$GE`, `$GC`, `$GF`, `$GP`, `$GA`, `$GV`), how long
+ago the client last asked, and how many times. Async notifications (`$AT`,
+`$AB`) are listed too. It works the same with the Python EVSE and in engine
+mode, so when the client's view disagrees with the emulator's, this is the
+client's view. A polled command whose age keeps growing is a client that has
+stopped asking.
+
+Tick **Show live traffic below** to stream every request and reply into the
+log as it happens. It is off by default because a polling client can send
+several commands a second.
+
+```bash
+curl http://localhost:8080/api/rapi/last
+```
+
 ### WebSocket
 
 Subscribe to real-time updates:
@@ -201,6 +221,119 @@ ws.onmessage = (event) => {
   // Handle state_change, status_update, or error messages
 };
 ```
+
+## Engine Mode: Running the Real Firmware
+
+By default the emulator implements the EVSE itself. Engine mode swaps the
+Python state machine and RAPI handler for the **actual OpenEVSE safety
+firmware**, built natively from the
+[open_evse](https://github.com/OpenEVSE/open_evse) repository, and keeps
+everything else: the EV simulator, the virtual serial port, the web UI and
+telemetry.
+
+Clients then talk to the same C++ that ships on the board, over the same
+serial port as before.
+
+### Building the firmware
+
+```bash
+cd ../open_evse
+pio run -e native_oev6      # OpenEVSE v3 / OEV6
+pio run -e native_nxt       # OpenEVSE NXT (SAMD)
+```
+
+The emulator finds the build by itself, in this order: `--engine-binary` (or
+`ENGINE_BINARY`), then `native_<board>` in `$OPENEVSE_NATIVE_DIR`, then a
+sibling `open_evse` checkout built as above. The board comes from
+`--engine-board` (or `ENGINE_BOARD`) and defaults to `oev6`.
+
+### Running
+
+```bash
+python src/main.py --engine                  # find the build for you
+python src/main.py --engine --engine-board nxt
+python src/main.py --engine-binary ../open_evse/.pio/build/native_oev6/program
+```
+
+### Running in Docker
+
+The image already contains both builds (`/opt/openevse/native_oev6` and
+`native_nxt`), so there is nothing to build:
+
+```bash
+docker run -p 8080:8080 -p 8023:8023 \
+  -e ENGINE_ENABLED=true -e ENGINE_BOARD=oev6 \
+  ghcr.io/jeremypoulter/openevse_emulator:latest
+```
+
+A freshly booted firmware holds charging until it receives `$SB` (clear boot
+lock), as on real hardware; the WiFi gateway sends it for you.
+
+### Error simulation
+
+The error buttons (and `POST /api/errors/trigger`) fault the simulated *board*
+in engine mode, and the firmware decides what to do about it. Every error type
+is available:
+
+| Error | What the emulator does to the board | What you see |
+| --- | --- | --- |
+| `gfci` | Raises the GFI trip line | GFCI fault, contactor opens |
+| `no_ground` | Drops the ground-sense lines | No-ground fault |
+| `stuck_relay` | Keeps mains on the load side of an open contactor | Stuck-relay fault, after the vehicle leaves and the firmware has tried to open it (about 20 s) |
+| `diode_check` | Lifts the pilot's low half, as a shorted vehicle diode would | Diode-check fault |
+| `over_temp` | Supplies a very hot enclosure sensor reading | Over-temperature fault; the firmware tells the vehicle to pause and holds RAPI for 5 s before opening the contactor |
+| `gfi_self_test` | Stops the detector answering the test coil | Self-test fault when the next charge starts |
+
+Most of these are latched by the firmware until the unit is reset, and the
+native build has no reset of its own. **Clear All Errors** therefore undoes
+the fault on the board and, if the firmware has latched, restarts it as a
+power cycle would: it runs its self tests again, announces itself with `$AB`,
+and is boot-locked until a client sends `$SB`, as after power-on. Settings and
+trip counters survive, since the EEPROM is a file.
+
+The emulator reports which engine it started:
+
+```text
+Starting firmware engine...
+Engine: ../open_evse/.pio/build/native_oev6/program
+        board=oev6 version=9.3.0.native
+```
+
+Or via `config.json`:
+
+```json
+"engine": {
+  "enabled": true,
+  "binary": "../open_evse/.pio/build/native_oev6/program",
+  "board": "",
+  "eeprom": "openevse_eeprom.bin",
+  "wait_ms": 10000
+}
+```
+
+### What changes
+
+| | Default | Engine mode |
+| --- | --- | --- |
+| EVSE state machine | `evse.py` | the firmware |
+| RAPI protocol | `rapi.py` | the firmware |
+| Vehicle | `ev.py` | `ev.py` |
+| Serial port, web UI, telemetry | unchanged | unchanged |
+| Checksum forms accepted | XOR (`^`) | XOR (`^`) and additive (`*`) |
+| Startup | instant | ~1s of power-on self tests |
+
+The emulator presents the board the firmware is wired to: the pilot as a
+square wave, the ammeter CT, the AC-sense lines, and a GFI detector that
+follows the test coil so the firmware's power-on self test passes. It does
+not decide what any of those *mean* -- that is the firmware's job, and the
+reason to run it.
+
+### When to use which
+
+Use the default Python EVSE for speed and convenience: it starts instantly
+and needs no toolchain. Use engine mode when a test needs the firmware's real
+behaviour -- fault handling, self tests, exact RAPI semantics -- or when you
+are developing the safety firmware itself and want it under a debugger.
 
 ## Configuration
 
@@ -409,6 +542,17 @@ If you want to build from source:
 docker build -t openevse-emulator .
 ```
 
+The build compiles the native firmware for engine mode in a first stage. It
+fetches the source from `FIRMWARE_REPO` at `FIRMWARE_REF` (build arguments).
+To build against a local checkout instead, export a clean copy and give it to
+BuildKit as the `firmware-src` stage:
+
+```bash
+mkdir -p /tmp/open_evse-src
+git -C ../open_evse archive HEAD | tar -x -C /tmp/open_evse-src
+docker buildx build --build-context firmware-src=/tmp/open_evse-src -t openevse-emulator .
+```
+
 Then run:
 
 ```bash
@@ -529,6 +673,34 @@ pytest --cov=src tests/
 # Run specific test file
 pytest tests/test_rapi.py
 ```
+
+#### Running against the real firmware
+
+Tests that take the `backend` fixture (`tests/conformance/`) run once per EVSE
+implementation: the Python state machine, and the real firmware built for the
+`oev6` and `nxt` boards. Where the implementations are meant to agree, this
+checks that they do, and it holds the Python model to what the firmware does.
+
+```bash
+pytest                          # every backend that is available
+pytest --backend python         # Python EVSE only; needs no firmware
+pytest --backend oev6           # one firmware board (repeat to pick several)
+pytest -m "not engine"          # everything that needs no firmware
+pytest -m engine                # only what runs the firmware
+```
+
+The firmware tests skip when no build is found (see
+[Building the firmware](#building-the-firmware)). Set
+`OPENEVSE_REQUIRE_ENGINE=1` to make that a failure instead, as CI does.
+
+To add a test that should hold for every implementation, take `backend` and use
+its helpers (`rapi()`, `step()`, `plug_in()`, `wait_for()`, `api()`). The NXT
+board currently cannot hold a charging session in the firmware's native bench
+(it does not model the NXT's ground sensing), so session scenarios use the
+`session` fixture, which skips there.
+
+CI builds the firmware once, keeps the binaries as the `native-firmware`
+artifact, and runs the whole suite against them.
 
 ### Contributing
 

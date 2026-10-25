@@ -74,3 +74,17 @@ def test_reset_discards_time_not_yet_simulated(monkeypatch):
     emu._on_reset()
     emu.catch_up()  # no wall-clock time has passed since the reset
     assert emu.evse.get_status()["session_time"] == 0
+
+
+def test_default_step_interval_keeps_the_ui_responsive():
+    """The EV's pilot reaches the EVSE only on a simulation step, so the
+    interval is how long a click on Connect or Request Charge waits to take
+    effect -- and engine mode needs two steps for each state change. At one
+    second that was two to four seconds before the page moved."""
+    from src.emulator.config import default_config
+
+    config_json = load_config(
+        os.path.join(os.path.dirname(__file__), "..", "config.json")
+    )
+    assert default_config()["simulation"]["update_interval_ms"] <= 200
+    assert config_json["simulation"]["update_interval_ms"] <= 200

@@ -148,6 +148,8 @@ class WebAPI:
         port: int = 8080,
         reporter=None,
         reporting_config: dict | None = None,
+        engine=None,
+        rapi_monitor=None,
         heartbeat_status: Optional[Callable[[], dict]] = None,
         reset_hook=None,
         scale_hook=None,
@@ -163,6 +165,10 @@ class WebAPI:
             reporter: Optional TelemetryReporter for the reporting endpoints
             reporting_config: The 'reporting' config the reporter was built
                 from, used as the base for runtime reconfiguration
+            rapi_monitor: Optional RapiMonitor; its entries are served at
+                /api/rapi/last and streamed to the UI as they happen
+            engine: Optional FirmwareEngine; when set, error simulation acts
+                on the real firmware's simulated board instead of self.evse
             heartbeat_status: Optional callable returning the RAPI heartbeat
                 supervision snapshot, added to /api/evse/status as "heartbeat"
             reset_hook: Optional callable run after POST /api/test/reset has
@@ -178,6 +184,8 @@ class WebAPI:
         self.port = port
         self.reporter = reporter
         self.reporting_config = reporting_config or {}
+        self.engine = engine
+        self.rapi_monitor = rapi_monitor
         self.reset_hook = reset_hook
         self.scale_hook = scale_hook
         # Simulated seconds per wall-clock second, read by the simulation loop
@@ -198,6 +206,9 @@ class WebAPI:
         self.socketio = SocketIO(
             self.app, cors_allowed_origins="*", async_mode="gevent"
         )
+
+        if self.rapi_monitor is not None:
+            self.rapi_monitor.on_record = self._broadcast_rapi
 
         # Register routes
         self._register_routes()
@@ -526,7 +537,7 @@ ws.onmessage = (event) => {
         def get_evse_status():
             # Evaluate heartbeat first so this response already shows any fallback
             heartbeat = self.heartbeat_status() if self.heartbeat_status else None
-            status = self.evse.get_status()
+            status = self._evse_status()
             if heartbeat is not None:
                 status["heartbeat"] = heartbeat
             return jsonify(status)
@@ -547,6 +558,19 @@ ws.onmessage = (event) => {
                 from emulator.config import FIRMWARE_PROFILES
             except ImportError:
                 from ..emulator.config import FIRMWARE_PROFILES
+
+            if self.engine:
+                # The firmware is the binary that was built, not a profile to
+                # pick. Changing it means running a different build.
+                return (
+                    jsonify(
+                        {
+                            "error": "Firmware is the native build in engine mode "
+                            "and cannot be changed"
+                        }
+                    ),
+                    409,
+                )
 
             data = request.get_json(silent=True) or {}
             version = data.get("version")
@@ -879,14 +903,30 @@ ws.onmessage = (event) => {
             if error_flag is None:
                 return jsonify({"error": "Unknown error type"}), 400
 
-            self.evse.trigger_error(error_flag)
+            if self.engine:
+                # Fault the board, not the model: the firmware has to notice
+                # and decide, and the mirror would overwrite anything set on
+                # self.evse.
+                {
+                    "gfci": self.engine.trip_gfi,
+                    "no_ground": self.engine.open_ground,
+                    "stuck_relay": self.engine.weld_relay,
+                    "diode_check": self.engine.fail_diode,
+                    "over_temp": self.engine.overheat,
+                    "gfi_self_test": self.engine.break_gfi_selftest,
+                }[data["error"]]()
+            else:
+                self.evse.trigger_error(error_flag)
             self._broadcast_error(data["error"])
             self._broadcast_status()
             return jsonify({"success": True})
 
         @self.app.route("/api/errors/clear", methods=["POST"])
         def clear_errors():
-            self.evse.clear_errors()
+            if self.engine:
+                self.engine.clear_faults()
+            else:
+                self.evse.clear_errors()
             self._broadcast_status()
             return jsonify({"success": True})
 
@@ -946,9 +986,15 @@ ws.onmessage = (event) => {
             return jsonify({"success": True, "scale": scale})
 
         # Combined status endpoint
+        @self.app.route("/api/rapi/last", methods=["GET"])
+        def get_last_rapi():
+            """The last request and reply seen for each RAPI command."""
+            commands = self.rapi_monitor.snapshot() if self.rapi_monitor else []
+            return jsonify({"commands": commands})
+
         @self.app.route("/api/status", methods=["GET"])
         def get_combined_status():
-            return jsonify({"evse": self.evse.get_status(), "ev": self.ev.get_status()})
+            return jsonify({"evse": self._evse_status(), "ev": self.ev.get_status()})
 
     def _on_state_change(self, new_state):
         """Called when EVSE state changes."""
@@ -989,12 +1035,28 @@ ws.onmessage = (event) => {
 
         return merged
 
+    def _evse_status(self) -> dict:
+        """The EVSE status every endpoint and push reports. In engine mode it
+        says so, so the UI can show the firmware rather than offer to change it."""
+        status = self.evse.get_status()
+        status["engine"] = self.engine.describe() if self.engine else None
+        return status
+
     def _broadcast_status(self):
         """Broadcast status update via WebSocket."""
-        evse_status = self.evse.get_status()
+        evse_status = self._evse_status()
         ev_status = self.ev.get_status()
 
         self.socketio.emit("status_update", {"evse": evse_status, "ev": ev_status})
+
+    def _broadcast_rapi(self, entry: dict):
+        """Stream one piece of RAPI traffic to the UI. Called from whichever
+        thread handled the serial data, so it must never let a failed emit
+        break the serial path."""
+        try:
+            self.socketio.emit("rapi", entry)
+        except Exception:  # noqa: BLE001 - monitoring is best effort
+            pass
 
     def _broadcast_error(self, error_type: str):
         """Broadcast error event via WebSocket."""

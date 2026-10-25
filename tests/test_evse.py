@@ -679,3 +679,54 @@ def test_zero_power_step_reports_no_current():
     evse.update_state("C")
     evse.update_charging(0.0, 1.0)
     assert evse.get_status()["actual_current"] == 0
+
+
+class TestEngineMode:
+    """In engine mode this object mirrors the firmware, so it must not raise
+    faults of its own: the firmware is the only thing that decides those."""
+
+    @staticmethod
+    def _charging_mirror():
+        from src.emulator.evse import EVSEStateMachine
+
+        evse = EVSEStateMachine()
+        evse.set_engine_mode()
+        evse.set_engine_state(0x03)  # the firmware says it is charging
+        return evse
+
+    def test_a_long_charge_never_overheats_the_model(self):
+        evse = self._charging_mirror()
+        # Far past the 800 s the thermal model needs to reach its limit
+        for _ in range(500):
+            evse.update_charging(5.76, 10.0)
+        status = evse.get_status()
+        assert status["error_flags"] == 0
+        assert status["state"] == 0x03
+        assert evse.offered_current_amps > 0
+
+    def test_the_python_evse_still_simulates_heating(self):
+        from src.emulator.evse import EVSEStateMachine
+
+        evse = EVSEStateMachine()
+        evse.update_state("B")
+        evse.update_state("C")
+        for _ in range(100):
+            evse.update_charging(5.76, 10.0)
+        assert evse.get_status()["error_flags"] != 0
+
+    def test_engine_mode_survives_restoring_the_defaults(self):
+        evse = self._charging_mirror()
+        evse.restore_defaults()
+        evse.set_engine_state(0x03)
+        for _ in range(500):
+            evse.update_charging(5.76, 10.0)
+        assert evse.get_status()["error_flags"] == 0
+
+    def test_temperature_follows_what_the_firmware_is_given(self):
+        from src.emulator.evse import AMBIENT_TEMP
+
+        evse = self._charging_mirror()
+        evse.set_engine_temperature(950)
+        assert evse.get_status()["temperature_mcp"] == 95.0
+        evse.set_engine_temperature(None)
+        assert evse.get_status()["temperature_mcp"] == AMBIENT_TEMP / 10.0
