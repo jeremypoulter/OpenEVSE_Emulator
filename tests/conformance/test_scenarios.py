@@ -7,6 +7,7 @@ because the firmware runs in real time and reports when it is ready.
 """
 
 import json
+import time
 
 import pytest
 
@@ -174,6 +175,27 @@ def test_failed_gfi_self_test_blocks_the_next_charge(session):
         what="GFI self-test fault",
     )
     _stops_drawing(backend)
+
+
+@pytest.mark.parametrize("ending", ["stops_asking", "unplugs"])
+def test_a_normal_stop_is_not_a_stuck_relay(session, ending):
+    """Opening the contactor after an ordinary charge must not read as welded.
+    The firmware only calls it a second after the relay opens, so a check that
+    ends the moment the state changes would miss it -- hold well past that."""
+    backend = session
+    _charge(backend)
+    if ending == "stops_asking":
+        backend.ev.requesting_charge = False
+        resting = STATE_B
+    else:
+        backend.unplug()
+        resting = STATE_A
+    backend.wait_for(lambda: backend.evse_state() == resting, what="relay to open")
+
+    deadline = time.time() + 4
+    while time.time() < deadline:
+        assert backend.announced_state() == resting
+        backend.step()
 
 
 def test_welded_relay_is_found_when_the_firmware_opens_it(session):

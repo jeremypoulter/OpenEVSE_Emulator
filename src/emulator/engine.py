@@ -364,8 +364,12 @@ class FirmwareEngine:
             self._send("IN ACLINE2 1")
             return
         live = charging or self.relay_welded
+        # Both lines sense the load side of the contactor, so with it open they
+        # read dead together. Reading ACLINE2 as permanently live made every
+        # open contactor look welded: the firmware calls stuck relay when
+        # either line reads low a second after the relay opens.
         self._send("IN ACLINE1 %d" % (0 if live else 1))
-        self._send("IN ACLINE2 0")
+        self._send("IN ACLINE2 %d" % (0 if live else 1))
 
     # ------------------------------------------------------------- the board
 
