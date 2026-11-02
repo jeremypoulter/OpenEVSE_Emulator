@@ -208,17 +208,25 @@ def _build(config, name) -> Harness:
 
     emulator = OpenEVSEEmulator(config=config)
     harness = Harness(emulator, name)
-    if emulator.engine:
+    if not emulator.engine:
+        return harness
+    try:
         emulator.engine.start()
         harness.start_simulation()
         harness.wait_for(
             lambda: emulator.engine.boot_postcode is not None, what="firmware boot"
         )
-        # Leave the unit as a fresh power-on does once the self tests pass.
+        # The unit must come up as a fresh power-on does once the self tests pass.
         assert emulator.engine.boot_postcode == 0, "firmware POST failed on %s: %#x" % (
             name,
             emulator.engine.boot_postcode,
         )
+    except BaseException:
+        # The fixture has no harness to stop yet. Without this a failed start
+        # leaves the firmware, its socket and the simulation thread running for
+        # the rest of the session, polluting every backend after it.
+        harness.stop()
+        raise
     return harness
 
 

@@ -88,3 +88,33 @@ def test_default_step_interval_keeps_the_ui_responsive():
     )
     assert default_config()["simulation"]["update_interval_ms"] <= 200
     assert config_json["simulation"]["update_interval_ms"] <= 200
+
+
+def test_no_offer_through_a_contactor_the_firmware_has_just_opened():
+    """The firmware opens the contactor a moment before it announces the new
+    state. Until it does, the mirror still says charging; offering the vehicle
+    current then would have it draw through an open contactor."""
+    from unittest.mock import MagicMock
+
+    emu = make_charging_emulator()
+    emu.engine = MagicMock()
+    emu.engine.charging_without_contactor.return_value = True
+    emu.ev.update_charging = MagicMock()
+
+    emu._step(0.1)
+
+    offered = emu.ev.update_charging.call_args[0][0]
+    assert offered == 0
+
+
+def test_the_offer_is_untouched_when_the_contactor_is_fine():
+    from unittest.mock import MagicMock
+
+    emu = make_charging_emulator()
+    emu.engine = MagicMock()
+    emu.engine.charging_without_contactor.return_value = False
+    emu.ev.update_charging = MagicMock()
+
+    emu._step(0.1)
+
+    assert emu.ev.update_charging.call_args[0][0] > 0

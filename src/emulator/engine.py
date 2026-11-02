@@ -54,9 +54,10 @@ _SIBLING_CHECKOUT = os.path.join(
 )
 
 
-# EVSE states the firmware latches until it is reset: vent required, then every
-# fault from the diode check through over-current.
-FAULT_STATES = frozenset(range(0x04, 0x0C))
+# EVSE states the firmware latches until it is reset: vent required, every
+# fault from the diode check through over-current, then relay closure, PP and
+# EEPROM faults.
+FAULT_STATES = frozenset(range(0x04, 0x0C)) | frozenset(range(0x0E, 0x12))
 
 # What "over temperature" presents: tenths of a degree C, past the firmware's
 # panic threshold on every board.
@@ -141,6 +142,7 @@ class FirmwareEngine:
         # Re-entrant because restart() holds it across start(), which sends
         # commands of its own.
         self._cmd_lock = threading.RLock()
+        self._send_lock = threading.Lock()
         self._threads: list[threading.Thread] = []
         self._async_callback: Optional[Callable[[str], None]] = None
         self._pending_async: list = []
@@ -164,6 +166,13 @@ class FirmwareEngine:
         self.firmware_version: Optional[str] = None
         self.protocol_version: Optional[str] = None
         self._responses = []
+        # a late reply from a timed-out command is still to come; see _resync()
+        self._resync_needed = False
+        self._probe_seq = 0
+        # Ammeter calibration, from $GA: milliamps = reading * scale - offset.
+        # OEV6 defaults until the firmware says otherwise.
+        self._ammeter_scale = 220
+        self._ammeter_offset = 0
 
         # simulated board wiring
         self.gfi_detector = True
@@ -195,75 +204,102 @@ class FirmwareEngine:
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
 
+        self._launch()
+        try:
+            timeout_sec = self.wait_ms / 1000.0
+            self._connect(timeout_sec)
+            self._spawn(self._channel_loop)
+            self._spawn(self._rapi_loop)
+            self._power_on(timeout_sec)
+        except Exception:
+            self._teardown()
+            raise
+
+    def _launch(self) -> None:
         env = dict(os.environ)
         env["OPENEVSE_HW_SOCKET"] = self.socket_path
         env["OPENEVSE_HW_WAIT_MS"] = str(self.wait_ms)
         if self.eeprom:
             env["OPENEVSE_EEPROM"] = self.eeprom
 
-        self.proc = subprocess.Popen(
-            [self.binary],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            env=env,
-            bufsize=0,
-        )
-
         try:
-            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            timeout_sec = self.wait_ms / 1000.0
-            deadline = time.time() + timeout_sec
-            while True:
-                try:
-                    self.sock.connect(self.socket_path)
-                    break
-                except (FileNotFoundError, ConnectionRefusedError):
-                    if self.proc.poll() is not None:
-                        raise EngineError(
-                            "firmware exited immediately (code %s)"
-                            % self.proc.returncode
-                        )
-                    if time.time() > deadline:
-                        raise EngineError("firmware never opened %s" % self.socket_path)
-                    time.sleep(0.02)
+            self.proc = subprocess.Popen(
+                [self.binary],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=env,
+                bufsize=0,
+            )
+        except OSError as e:
+            # No execute bit, or a build for another architecture
+            raise EngineError("could not run firmware %s: %s" % (self.binary, e))
 
-            self._spawn(self._channel_loop)
-            self._spawn(self._rapi_loop)
+    def _connect(self, timeout_sec: float) -> None:
+        """Connect to the firmware's hardware channel once it has opened it."""
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        deadline = time.time() + timeout_sec
+        while True:
+            try:
+                self.sock.connect(self.socket_path)
+                return
+            except (FileNotFoundError, ConnectionRefusedError):
+                pass  # not listening yet
+            except OSError as e:
+                raise EngineError(
+                    "cannot connect to firmware at %s: %s" % (self.socket_path, e)
+                )
+            if self.proc.poll() is not None:
+                raise EngineError(
+                    "firmware exited immediately (code %s)" % self.proc.returncode
+                )
+            if time.time() > deadline:
+                raise EngineError("firmware never opened %s" % self.socket_path)
+            time.sleep(0.02)
 
-            # The firmware waits for us before running its power-on self
-            # tests, so energise the board now: ground present, contactor
-            # open, pilot at +12V. Getting this in first is what lets the
-            # GFI self-test pass.
-            self._await(lambda: bool(self.hello), timeout_sec, "HELLO from firmware")
-            if not self.board:
-                self.board = self.hello.get("board", "oev6")
-            if self.board not in PILOT_BANDS:
-                raise EngineError("unsupported firmware board: %r" % self.board)
-            self._send_aclines()
-            self.set_pilot_band("A")
-            self._read_version()
-        except Exception:
-            self._teardown()
-            raise
+    def _power_on(self, timeout_sec: float) -> None:
+        """Energise the board and read what the firmware is."""
+        # The firmware waits for us before running its power-on self tests, so
+        # energise the board now: ground present, contactor open, pilot at
+        # +12V. Getting this in first is what lets the GFI self-test pass.
+        self._await(lambda: bool(self.hello), timeout_sec, "HELLO from firmware")
+        if not self.board:
+            self.board = self.hello.get("board", "oev6")
+        if self.board not in PILOT_BANDS:
+            raise EngineError("unsupported firmware board: %r" % self.board)
+        # Whatever the simulation thread sent while this process was still
+        # starting went nowhere (there was no socket yet), so the "already
+        # sent" caches would otherwise swallow the first real inputs.
+        self._last_band = None
+        self._last_current_counts = -1
+        self._send_aclines()
+        self.set_pilot_band("A")
+        self._read_version()
+        self._read_calibration()
 
     def _read_version(self) -> None:
         parts = _reply_fields(self.process_command(_rapi_frame("$GV")))
         if len(parts) >= 3 and parts[0] == "$OK":
             self.firmware_version, self.protocol_version = parts[1], parts[2]
 
+    def _read_calibration(self) -> None:
+        """Take the ammeter calibration from the firmware, since each board (and
+        an EEPROM that has been calibrated) differs: OEV6 is 220 mA a count,
+        NXT 37 mA with an offset."""
+        parts = _reply_fields(self.process_command(_rapi_frame("$GA")))
+        if len(parts) >= 3 and parts[0] == "$OK":
+            try:
+                scale, offset = int(parts[1]), int(parts[2])
+            except ValueError:
+                return
+            if scale > 0:
+                self._ammeter_scale, self._ammeter_offset = scale, offset
+
     def _teardown(self) -> None:
         """Undo whatever start() managed to bring up, so a fresh start() can
         be tried again."""
         self._stop.set()
-        if self.proc:
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=5)
-            self.proc = None
+        pipes = self._stop_process()
         if self.sock:
             try:
                 self.sock.close()
@@ -273,6 +309,13 @@ class FirmwareEngine:
         for t in self._threads:
             t.join(timeout=2)
         self._threads = []
+        # The process is gone and nothing reads its pipes now; close them, or
+        # every restart leaks a pair of file descriptors.
+        for pipe in pipes:
+            try:
+                pipe.close()
+            except (OSError, ValueError):
+                pass
         self._pending_async = []
         if os.path.exists(self.socket_path):
             try:
@@ -280,6 +323,19 @@ class FirmwareEngine:
             except OSError:
                 pass
         self._stop.clear()
+
+    def _stop_process(self) -> list:
+        """Terminate the firmware; return its pipes, still to be closed."""
+        proc, self.proc = self.proc, None
+        if not proc:
+            return []
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+        return [p for p in (proc.stdin, proc.stdout) if p]
 
     def stop(self) -> None:
         self._teardown()
@@ -345,12 +401,17 @@ class FirmwareEngine:
             self._send_aclines(charging=bool(val))
 
     def _send(self, line: str) -> None:
-        if not self.sock:
-            return
-        try:
-            self.sock.sendall((line + "\n").encode())
-        except OSError:
-            pass
+        # Called from the simulation, web and channel-reader threads alike. A
+        # stream socket has no message boundaries, so two sendall()s that
+        # overlap could interleave bytes and hand the firmware a corrupt line.
+        with self._send_lock:
+            sock = self.sock
+            if not sock:
+                return
+            try:
+                sock.sendall((line + "\n").encode())
+            except OSError:
+                pass
 
     def _send_aclines(self, charging: Optional[bool] = None) -> None:
         """Drive both AC-sense lines. They are active low: voltage at the pin
@@ -392,19 +453,30 @@ class FirmwareEngine:
     def set_charge_current(self, amps: float) -> None:
         """Feed the ammeter. The CT is presented as a swing about mid-scale."""
         adc_max = int(self.hello.get("adc_max", 1023))
-        scale = adc_max / 1023.0
-        # DEFAULT_CURRENT_SCALE_FACTOR is mA per ADC count on OEV6. The bench
-        # alternates the two levels on successive reads, so the firmware's
+        # The firmware computes mA = reading * scale - offset (see $GA), so the
+        # reading that makes it measure `amps` is (mA + offset) / scale. The
+        # bench alternates the two levels on successive reads, so its
         # sum-of-squares sees a square wave, whose RMS is its full amplitude.
         # (A sine's peak would need a sqrt(2) on top of this; using one here
         # reads 41% high and trips over-current after ten seconds.)
-        counts = int(amps * 1000.0 / 220.0 * scale)
+        counts = int((amps * 1000.0 + self._ammeter_offset) / self._ammeter_scale)
         counts = max(0, min(counts, adc_max // 2 - 1))
         if counts == self._last_current_counts:
             return
         self._last_current_counts = counts
         mid = adc_max // 2
         self._send("ADC CURRENT %d %d" % (mid + counts, mid - counts))
+
+    def charging_without_contactor(self) -> bool:
+        """The firmware still says it is charging, but the contactor has opened.
+
+        The firmware opens the contactor a moment before it announces the new
+        state, so for that moment the mirror still says C and would keep
+        offering the vehicle current through an open contactor. (The other way
+        round -- contactor closing -- it announces afterwards, so this never
+        holds the initial handshake back.)
+        """
+        return self.evse_state == 0x03 and not self.relay_closed()
 
     def relay_closed(self) -> bool:
         """Whether the firmware currently has the contactor closed."""
@@ -594,16 +666,40 @@ class FirmwareEngine:
             return self._process_command_locked(cmd, timeout)
 
     def _process_command_locked(self, cmd: str, timeout: float) -> str:
+        # A command that timed out may still be answered, late. Left alone, that
+        # answer would be taken for the next command's. Sort it out first.
+        if self._resync_needed and not self._resync(timeout):
+            return "$NK^21\r"
+
+        reply = self._exchange(cmd, timeout)
+        if reply is None:
+            # No answer in time (or the pipe is gone). The firmware may only be
+            # busy -- it holds RAPI for seconds on an over-temperature stop.
+            self._resync_needed = True
+            return "$NK^21\r"
+
+        # The ammeter calibration may have just changed ($SA)
+        if cmd.lstrip().upper().startswith("$SA") and reply.startswith("$OK"):
+            self._read_calibration()
+        return reply + "\r"
+
+    def _write(self, cmd: str) -> bool:
+        try:
+            self.proc.stdin.write((cmd + "\r").encode("latin-1"))
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError, AttributeError):
+            return False
+        return True
+
+    def _exchange(self, cmd: str, timeout: float) -> Optional[str]:
+        """Send one command and return its reply, or None if none came."""
         with self._lock:
             before = len(self._responses)
 
         # Pass the client's framing through untouched -- it carries their
         # checksum and any sequence id, and the firmware validates both.
-        try:
-            self.proc.stdin.write((cmd + "\r").encode("latin-1"))
-            self.proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            return "$NK^21\r"
+        if not self._write(cmd):
+            return None
 
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -616,9 +712,41 @@ class FirmwareEngine:
                     # without bound.
                     reply = self._responses[before]
                     del self._responses[: before + 1]
-                    return reply + "\r"
+                    return reply
             time.sleep(0.005)
-        return "$NK^21\r"
+        return None
+
+    def _resync(self, timeout: float) -> bool:
+        """Discard replies to commands that timed out.
+
+        The firmware echoes a sequence id back in its reply, so a probe with a
+        unique one marks the point after which everything is ours: whatever
+        arrives before the probe's own reply is a straggler and is dropped.
+        """
+        self._probe_seq = (self._probe_seq + 1) & 0xFF
+        tag = " :%02X" % self._probe_seq
+        with self._lock:
+            before = len(self._responses)
+        if not self._write(_rapi_frame("$GV" + tag)):
+            return False
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                for index in range(before, len(self._responses)):
+                    if tag in self._responses[index]:
+                        del self._responses[: index + 1]
+                        self._resync_needed = False
+                        return True
+            time.sleep(0.005)
+        return False
+
+    def command(self, cmd: str) -> tuple:
+        """Send the firmware a command of our own -- the web API's controls --
+        and return (ok, reply arguments). Unlike traffic from a serial client
+        this is not framed by the client, so it is framed here."""
+        fields = _reply_fields(self.process_command(_rapi_frame(cmd)))
+        return (bool(fields) and fields[0] == "$OK", fields[1:])
 
     def describe(self) -> dict:
         """What the web UI needs to say which firmware is running: the board

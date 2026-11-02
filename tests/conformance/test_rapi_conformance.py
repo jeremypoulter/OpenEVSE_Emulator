@@ -124,3 +124,22 @@ def test_the_monitor_records_async_notifications(backend):
     entry = {e["command"]: e for e in backend.emu.rapi_monitor.snapshot()}["AT"]
     assert entry["kind"] == "async"
     assert entry["fields"]["state"] == 3
+
+
+def test_the_web_controls_reach_the_unit(backend):
+    """Enabling, disabling and setting the current through the web API must be
+    seen by the serial client, whichever EVSE is behind the port."""
+    client = backend.api()
+
+    # The API's "disable" puts the unit to sleep ($FS); $FD is separate
+    assert client.post("/api/evse/disable").status_code == 200
+    assert backend.evse_state() == 0xFE
+
+    assert client.post("/api/evse/enable").status_code == 200
+    assert backend.evse_state() != 0xFE
+
+    response = client.post(
+        "/api/evse/current", data='{"amps": 12}', content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert int(backend.rapi("$GE").args[0]) == 12

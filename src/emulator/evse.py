@@ -33,6 +33,13 @@ class EVSEState(IntEnum):
     STATE_STUCK_RELAY = 0x08
     STATE_GFCI_SELF_TEST_FAILED = 0x09
     STATE_OVER_TEMPERATURE = 0x0A
+    # The firmware also reports these; the Python model never raises them
+    # itself, but in engine mode the mirror has to be able to show them.
+    STATE_OVER_CURRENT = 0x0B
+    STATE_RELAY_CLOSURE_FAULT = 0x0E
+    STATE_PP_SHORTED = 0x0F
+    STATE_PP_MISSING = 0x10
+    STATE_EEPROM_FAILURE = 0x11
     STATE_SLEEP = 0xFE
     STATE_DISABLED = 0xFF
 
@@ -46,6 +53,11 @@ class ErrorFlags(IntEnum):
     DIODE_CHECK_FAILED = 0x08
     OVER_TEMPERATURE = 0x10
     GFI_SELF_TEST_FAILED = 0x20
+    OVER_CURRENT = 0x40
+    RELAY_CLOSURE_FAULT = 0x80
+    PP_SHORTED = 0x100
+    PP_MISSING = 0x200
+    EEPROM_FAILURE = 0x400
 
 
 # Map an active error flag to the OpenEVSE fault state it should report.
@@ -57,6 +69,11 @@ ERROR_FLAG_TO_STATE = [
     (ErrorFlags.NO_GROUND, EVSEState.STATE_NO_GROUND),
     (ErrorFlags.GFCI_TRIP, EVSEState.STATE_GFCI_FAULT),
     (ErrorFlags.DIODE_CHECK_FAILED, EVSEState.STATE_DIODE_CHECK_FAILED),
+    (ErrorFlags.EEPROM_FAILURE, EVSEState.STATE_EEPROM_FAILURE),
+    (ErrorFlags.OVER_CURRENT, EVSEState.STATE_OVER_CURRENT),
+    (ErrorFlags.RELAY_CLOSURE_FAULT, EVSEState.STATE_RELAY_CLOSURE_FAULT),
+    (ErrorFlags.PP_SHORTED, EVSEState.STATE_PP_SHORTED),
+    (ErrorFlags.PP_MISSING, EVSEState.STATE_PP_MISSING),
 ]
 
 # The reverse of the above: which error flag a fault state reported by the

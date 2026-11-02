@@ -172,7 +172,8 @@ class TestEngineStatusForTheUI:
 
     def test_page_has_the_native_version_slot(self):
         client, _ = self._client()
-        html = client.get("/").get_data(as_text=True)
+        with client.get("/") as response:
+            html = response.get_data(as_text=True)
         assert 'id="firmware-version-native"' in html
         assert 'id="firmware-version"' in html
 
@@ -194,3 +195,65 @@ def test_injected_temperature_reaches_the_web_model():
     engine.cool()
     engine.mirror_into(evse)
     assert evse.get_status()["temperature_mcp"] == AMBIENT_TEMP / 10.0
+
+
+class TestEngineControls:
+    """In engine mode the EVSE controls go to the firmware. Changing only the
+    mirror would report success and be overwritten by its next announcement."""
+
+    @staticmethod
+    def _client(command_result=(True, [])):
+        engine = MagicMock()
+        engine.command.return_value = command_result
+        api = WebAPI(EVSEStateMachine(), MagicMock(), engine=engine)
+        return api, engine, api.app.test_client()
+
+    @staticmethod
+    def _post(client, url, body=None):
+        return client.post(
+            url, data=json.dumps(body or {}), content_type="application/json"
+        )
+
+    @pytest.mark.parametrize(
+        "url,body,command",
+        [
+            ("/api/evse/enable", None, "$FE"),
+            ("/api/evse/disable", None, "$FS"),
+            ("/api/evse/current", {"amps": 16}, "$SC 16"),
+            ("/api/evse/service_level", {"level": "L1"}, "$SL 1"),
+            ("/api/evse/service_level", {"level": "L2"}, "$SL 2"),
+            ("/api/evse/service_level", {"level": "Auto"}, "$SL A"),
+        ],
+    )
+    def test_controls_are_sent_to_the_firmware(self, url, body, command):
+        _, engine, client = self._client()
+        assert self._post(client, url, body).status_code == 200
+        engine.command.assert_called_once_with(command)
+
+    def test_a_refusal_from_the_firmware_is_an_error_not_a_success(self):
+        _, _, client = self._client(command_result=(False, ["80"]))
+        response = self._post(client, "/api/evse/current", {"amps": 70})
+        assert response.status_code == 400
+        assert response.get_json()["success"] is False
+        assert response.get_json()["firmware_reply"] == ["80"]
+
+    def test_the_mirror_is_not_changed_behind_the_firmwares_back(self):
+        api, _, client = self._client()
+        before = api.evse.commanded_current_amps
+        self._post(client, "/api/evse/current", {"amps": 16})
+        assert api.evse.commanded_current_amps == before
+
+    @pytest.mark.parametrize(
+        "url,method",
+        [("/api/errors/clear", "clear_faults"), ("/api/evse/reset", "restart")],
+    )
+    def test_recovery_runs_under_the_simulation_lock(self, url, method):
+        """Both restart the firmware process; the simulation thread must not be
+        mid-step, writing to the socket being replaced."""
+        api, engine, client = self._client()
+        held = []
+        getattr(engine, method).side_effect = lambda: held.append(
+            api.sim_lock._is_owned()
+        )
+        assert self._post(client, url).status_code == 200
+        assert held == [True]

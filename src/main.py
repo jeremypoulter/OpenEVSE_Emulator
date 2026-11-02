@@ -319,7 +319,11 @@ class OpenEVSEEmulator:
         # so withholding the offer until the contactor closed would deadlock
         # in state B. The contactor gates what the *firmware* sees instead
         # (see FirmwareEngine.apply_ev), and a fault zeroes the offer through
-        # the mirrored error state.
+        # the mirrored error state. The one exception is the instant the
+        # firmware opens the contactor while still announcing state C.
+        if self.engine and self.engine.charging_without_contactor():
+            offered_current = 0
+
         # Update EV charging based on EVSE offer
         self.ev.update_charging(offered_current, voltage, delta_time)
 

@@ -588,6 +588,8 @@ ws.onmessage = (event) => {
 
         @self.app.route("/api/evse/enable", methods=["POST"])
         def enable_evse():
+            if self.engine:
+                return self._firmware_control("$FE")
             if self.evse.enable():
                 self._broadcast_status()
                 return jsonify({"success": True})
@@ -598,12 +600,22 @@ ws.onmessage = (event) => {
 
         @self.app.route("/api/evse/disable", methods=["POST"])
         def disable_evse():
+            if self.engine:
+                # "Disable" here sleeps the unit ($FS), as it does for the
+                # Python EVSE; $FD is the separate hard disable
+                return self._firmware_control("$FS")
             self.evse.disable()
             self._broadcast_status()
             return jsonify({"success": True})
 
         @self.app.route("/api/evse/reset", methods=["POST"])
         def reset_evse():
+            if self.engine:
+                # The native build ignores $FR, so a reset is a power cycle
+                with self.sim_lock:
+                    self.engine.restart()
+                self._broadcast_status()
+                return jsonify({"success": True})
             self.evse.reset()
             self._broadcast_status()
             return jsonify({"success": True})
@@ -622,6 +634,9 @@ ws.onmessage = (event) => {
                         400,
                     )
 
+                if self.engine:
+                    return self._firmware_control("$SC %d" % amps)
+
                 self.evse.current_capacity_amps = amps
                 self._broadcast_status()
                 return jsonify({"success": True})
@@ -637,6 +652,11 @@ ws.onmessage = (event) => {
             level = data["level"]
             if level not in ["L1", "L2", "Auto"]:
                 return jsonify({"error": "Level must be L1, L2, or Auto"}), 400
+
+            if self.engine:
+                return self._firmware_control(
+                    "$SL %s" % {"L1": "1", "L2": "2", "Auto": "A"}[level]
+                )
 
             self.evse.service_level = level
             self._broadcast_status()
@@ -924,7 +944,10 @@ ws.onmessage = (event) => {
         @self.app.route("/api/errors/clear", methods=["POST"])
         def clear_errors():
             if self.engine:
-                self.engine.clear_faults()
+                # Recovering a latched fault restarts the firmware, which must
+                # not happen under the simulation thread's feet
+                with self.sim_lock:
+                    self.engine.clear_faults()
             else:
                 self.evse.clear_errors()
             self._broadcast_status()
@@ -1034,6 +1057,25 @@ ws.onmessage = (event) => {
         replacement.start()
 
         return merged
+
+    def _firmware_control(self, command: str):
+        """Run a control against the real firmware, as a gateway would, and say
+        what it said. Changing only the mirror would report success and be
+        overwritten by the next thing the firmware announced."""
+        ok, args = self.engine.command(command)
+        if not ok:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "The firmware refused %s" % command.split()[0],
+                        "firmware_reply": args,
+                    }
+                ),
+                400,
+            )
+        self._broadcast_status()
+        return jsonify({"success": True})
 
     def _evse_status(self) -> dict:
         """The EVSE status every endpoint and push reports. In engine mode it

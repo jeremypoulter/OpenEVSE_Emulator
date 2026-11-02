@@ -1,5 +1,7 @@
 """Tests for EVSE state machine."""
 
+import pytest
+
 from src.emulator.evse import EVSEStateMachine, EVSEState, ErrorFlags
 
 
@@ -730,3 +732,25 @@ class TestEngineMode:
         assert evse.get_status()["temperature_mcp"] == 95.0
         evse.set_engine_temperature(None)
         assert evse.get_status()["temperature_mcp"] == AMBIENT_TEMP / 10.0
+
+
+@pytest.mark.parametrize(
+    "code",
+    [0x0B, 0x0E, 0x0F, 0x10, 0x11],
+    ids=["over-current", "relay-closure", "pp-shorted", "pp-missing", "eeprom"],
+)
+def test_the_mirror_shows_every_fault_state_the_firmware_defines(code):
+    """A fault state the model does not know used to be ignored, leaving the
+    mirror -- and the vehicle -- on a healthy charge after the firmware had
+    shut down."""
+    from src.emulator.evse import EVSEStateMachine
+
+    evse = EVSEStateMachine()
+    evse.set_engine_mode()
+    evse.set_engine_state(0x03)
+    evse.set_engine_state(code)
+
+    status = evse.get_status()
+    assert status["state"] == code
+    assert status["error_flags"] != 0
+    assert evse.offered_current_amps == 0
