@@ -287,7 +287,7 @@ is available:
 Most of these are latched by the firmware until the unit is reset, and the
 native build has no reset of its own. **Clear All Errors** therefore undoes
 the fault on the board and, if the firmware has latched, restarts it as a
-power cycle would: it runs its self tests again, announces itself with `$AB`,
+power cycle would: it runs its self-tests again, announces itself with `$AB`,
 and is boot-locked until a client sends `$SB`, as after power-on. Settings and
 trip counters survive, since the EEPROM is a file.
 
@@ -320,11 +320,11 @@ Or via `config.json`:
 | Vehicle | `ev.py` | `ev.py` |
 | Serial port, web UI, telemetry | unchanged | unchanged |
 | Checksum forms accepted | XOR (`^`) | XOR (`^`) and additive (`*`) |
-| Startup | instant | ~1s of power-on self tests |
+| Startup | instant | ~1s of power-on self-tests |
 
 The emulator presents the board the firmware is wired to: the pilot as a
 square wave, the ammeter CT, the AC-sense lines, and a GFI detector that
-follows the test coil so the firmware's power-on self test passes. It does
+follows the test coil so the firmware's power-on self-test passes. It does
 not decide what any of those *mean* -- that is the firmware's job, and the
 reason to run it.
 
@@ -332,7 +332,7 @@ reason to run it.
 
 Use the default Python EVSE for speed and convenience: it starts instantly
 and needs no toolchain. Use engine mode when a test needs the firmware's real
-behaviour -- fault handling, self tests, exact RAPI semantics -- or when you
+behaviour -- fault handling, self-tests, exact RAPI semantics -- or when you
 are developing the safety firmware itself and want it under a debugger.
 
 ## Configuration
@@ -543,7 +543,10 @@ docker build -t openevse-emulator .
 ```
 
 The build compiles the native firmware for engine mode in a first stage. It
-fetches the source from `FIRMWARE_REPO` at `FIRMWARE_REF` (build arguments).
+fetches the source from `FIRMWARE_REPO` (a GitHub `owner/repo`) at `FIRMWARE_REF` (a
+branch, tag or commit; CI passes the exact commit it resolved, and the image records it in
+`/opt/openevse/FIRMWARE_COMMIT`). Use a commit for a reproducible build: Docker may reuse a
+cached layer for a branch name that has since moved.
 To build against a local checkout instead, export a clean copy and give it to
 BuildKit as the `firmware-src` stage:
 

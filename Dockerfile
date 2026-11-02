@@ -9,10 +9,21 @@
 # Fetched from git by default. To build a local checkout instead, hand BuildKit
 # a clean export of it as this stage (see DOCKER.md):
 #   docker buildx build --build-context firmware-src=/path/to/open_evse .
+#
+# FIRMWARE_REPO is a GitHub owner/repo. FIRMWARE_REF is a branch, tag or commit;
+# CI passes the exact commit it resolved. A branch name would let Docker reuse
+# a cached layer after the branch has moved, so the image could carry older
+# firmware than the one the tests ran against -- a commit changes the build
+# argument and so the layer.
 FROM alpine/git AS firmware-fetch
-ARG FIRMWARE_REPO=https://github.com/jeremypoulter/open_evse.git
+ARG FIRMWARE_REPO=jeremypoulter/open_evse
 ARG FIRMWARE_REF=feat/native-target
-RUN git clone --depth 1 --branch "${FIRMWARE_REF}" "${FIRMWARE_REPO}" /src
+RUN git init -q /src \
+    && cd /src \
+    && git remote add origin "https://github.com/${FIRMWARE_REPO}.git" \
+    && git fetch -q --depth 1 origin "${FIRMWARE_REF}" \
+    && git checkout -q FETCH_HEAD \
+    && git rev-parse HEAD > /src/.firmware-commit
 
 FROM scratch AS firmware-src
 COPY --from=firmware-fetch /src /
@@ -30,7 +41,8 @@ WORKDIR /src
 RUN pio run -e native_oev6 -e native_nxt \
     && mkdir -p /out \
     && cp .pio/build/native_oev6/program /out/native_oev6 \
-    && cp .pio/build/native_nxt/program /out/native_nxt
+    && cp .pio/build/native_nxt/program /out/native_nxt \
+    && (cp .firmware-commit /out/FIRMWARE_COMMIT 2>/dev/null || echo "local build" > /out/FIRMWARE_COMMIT)
 
 # ---- emulator --------------------------------------------------------------
 FROM python:3.14-slim
