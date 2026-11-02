@@ -28,7 +28,9 @@ const context = vm.createContext({
 });
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), context);
 const ev = JSON.parse(process.argv[2]);
-console.log(JSON.stringify(vm.runInContext('evButtonStates', context)(ev)));
+const states = vm.runInContext('evButtonStates', context)(ev);
+const hints = vm.runInContext('evButtonHints', context)(states);
+console.log(JSON.stringify({ states, hints }));
 """
 
 
@@ -42,12 +44,16 @@ def evaluate(**ev):
     return json.loads(out)
 
 
+def hints(**ev):
+    return evaluate(**ev)["hints"]
+
+
 def buttons(**ev):
-    return {name: s["enabled"] for name, s in evaluate(**ev).items()}
+    return {name: s["enabled"] for name, s in evaluate(**ev)["states"].items()}
 
 
 def reasons(**ev):
-    return {name: s["reason"] for name, s in evaluate(**ev).items()}
+    return {name: s["reason"] for name, s in evaluate(**ev)["states"].items()}
 
 
 def test_unplugged_vehicle_can_only_connect():
@@ -111,3 +117,56 @@ def test_every_disabled_button_says_why_and_enabled_ones_do_not():
         why = reasons(**ev)
         for name, on in enabled.items():
             assert bool(why[name]) == (not on), (ev, name)
+
+
+def test_the_reason_is_written_on_the_page_not_only_in_a_tooltip():
+    """A disabled control's title is not reliably announced, so each group of
+    buttons has visible text saying why the unavailable ones are."""
+    text = hints(connected=False, requesting_charge=False, soc=50)
+    assert text["ev-hint-connection"] == (
+        "Disconnect EV is unavailable: The EV is not connected."
+    )
+    assert "Connect the EV first" in text["ev-hint-charge"]
+    assert "Stop Charge is unavailable" in text["ev-hint-charge"]
+
+
+def test_only_the_unavailable_buttons_are_mentioned():
+    # Connected, idle: disconnect + request are fine, connect + stop are not,
+    # so each group has exactly one thing to say
+    text = hints(connected=True, requesting_charge=False, soc=50)
+    assert "Connect EV is unavailable" in text["ev-hint-connection"]
+    assert "Disconnect" not in text["ev-hint-connection"]
+    assert "Request Charge" not in text["ev-hint-charge"]
+
+
+CLICK_RUNNER = """
+const vm = require('vm');
+const fs = require('fs');
+let handler;
+const context = vm.createContext({
+    io: () => ({ on() {} }),
+    document: {
+        addEventListener() {},
+        getElementById: () => ({ addEventListener: (_, fn) => { handler = fn; } }),
+    },
+    console,
+});
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), context);
+let calls = 0;
+vm.runInContext('evAction', context)('btn-connect', () => { calls += 1; });
+handler({ currentTarget: { getAttribute: () => process.argv[2] } });
+console.log(calls);
+"""
+
+
+@pytest.mark.parametrize("aria_disabled,calls", [("true", 0), ("false", 1)])
+def test_an_unavailable_button_ignores_clicks(aria_disabled, calls):
+    """The button stays focusable (aria-disabled, not disabled), so the
+    handler itself has to refuse the action."""
+    out = subprocess.run(
+        ["node", "-e", CLICK_RUNNER, str(APP_JS), aria_disabled],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert int(out) == calls

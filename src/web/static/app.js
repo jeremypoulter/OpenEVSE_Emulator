@@ -48,19 +48,53 @@ function evButtonStates(ev) {
     };
 }
 
+const EV_BUTTONS = {
+    connect: { id: 'btn-connect', label: 'Connect EV', hint: 'ev-hint-connection' },
+    disconnect: { id: 'btn-disconnect', label: 'Disconnect EV', hint: 'ev-hint-connection' },
+    requestCharge: { id: 'btn-request-charge', label: 'Request Charge', hint: 'ev-hint-charge' },
+    stopCharge: { id: 'btn-stop-charge', label: 'Stop Charge', hint: 'ev-hint-charge' },
+};
+
+// The visible explanation for each group of buttons: why the ones that are
+// unavailable are. Text on the page, rather than a tooltip, because a
+// disabled control's title is not reliably exposed to keyboard or screen
+// reader users.
+function evButtonHints(states) {
+    const hints = {};
+    for (const [name, button] of Object.entries(EV_BUTTONS)) {
+        hints[button.hint] = hints[button.hint] || [];
+        if (!states[name].enabled) {
+            hints[button.hint].push(`${button.label} is unavailable: ${states[name].reason}.`);
+        }
+    }
+    return Object.fromEntries(
+        Object.entries(hints).map(([id, lines]) => [id, lines.join(' ')]));
+}
+
+// aria-disabled, not disabled: the button stays focusable, so keyboard and
+// screen reader users reach it and hear why it does nothing (aria-describedby
+// points at the hint). The click handlers ignore it while it is set.
 function applyEvButtonStates(ev) {
     const states = evButtonStates(ev);
-    const buttons = {
-        connect: 'btn-connect',
-        disconnect: 'btn-disconnect',
-        requestCharge: 'btn-request-charge',
-        stopCharge: 'btn-stop-charge',
-    };
-    for (const [name, id] of Object.entries(buttons)) {
-        const button = document.getElementById(id);
-        button.disabled = !states[name].enabled;
-        button.title = states[name].reason;
+    for (const [name, button] of Object.entries(EV_BUTTONS)) {
+        const element = document.getElementById(button.id);
+        element.setAttribute('aria-disabled', String(!states[name].enabled));
+        element.classList.toggle('is-disabled', !states[name].enabled);
+        element.title = states[name].reason;
     }
+    for (const [id, text] of Object.entries(evButtonHints(states))) {
+        document.getElementById(id).textContent = text;
+    }
+}
+
+// Run an EV button's action unless it is currently unavailable
+function evAction(id, action) {
+    document.getElementById(id).addEventListener('click', (event) => {
+        if (event.currentTarget.getAttribute('aria-disabled') === 'true') {
+            return;
+        }
+        action();
+    });
 }
 
 // Initialize on page load
@@ -78,10 +112,10 @@ document.addEventListener('DOMContentLoaded', function() {
 // Initialize control event listeners
 function initializeControls() {
     // EV controls
-    document.getElementById('btn-connect').addEventListener('click', () => apiCall('/api/ev/connect', 'POST'));
-    document.getElementById('btn-disconnect').addEventListener('click', () => apiCall('/api/ev/disconnect', 'POST'));
-    document.getElementById('btn-request-charge').addEventListener('click', () => apiCall('/api/ev/request_charge', 'POST'));
-    document.getElementById('btn-stop-charge').addEventListener('click', () => apiCall('/api/ev/stop_charge', 'POST'));
+    evAction('btn-connect', () => apiCall('/api/ev/connect', 'POST'));
+    evAction('btn-disconnect', () => apiCall('/api/ev/disconnect', 'POST'));
+    evAction('btn-request-charge', () => apiCall('/api/ev/request_charge', 'POST'));
+    evAction('btn-stop-charge', () => apiCall('/api/ev/stop_charge', 'POST'));
     
     document.getElementById('battery-soc').addEventListener('input', function(e) {
         document.getElementById('battery-soc-value').textContent = e.target.value;

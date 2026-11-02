@@ -208,10 +208,11 @@ header .subtitle {
     transform: translateY(0);
 }
 
-/* Not valid in the current state: the title says what has to happen first */
-.btn:disabled,
-.btn:disabled:hover,
-.btn:disabled:active {
+/* Not valid in the current state; the hint beneath says what has to happen
+   first. aria-disabled rather than disabled, so the button stays focusable. */
+.btn.is-disabled,
+.btn.is-disabled:hover,
+.btn.is-disabled:active {
     opacity: 0.4;
     cursor: not-allowed;
     transform: none;
@@ -340,6 +341,13 @@ select:focus {
 /* Serial Monitor */
 .serial-monitor {
     grid-column: 1 / -1;
+}
+
+.ev-hint {
+    margin: 0;
+    min-height: 1.2em;
+    font-size: 0.85em;
+    color: #555;
 }
 
 .rapi-table-wrap {

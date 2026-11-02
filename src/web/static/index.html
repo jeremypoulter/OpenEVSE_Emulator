@@ -98,13 +98,15 @@
             <h2>EV Simulator</h2>
             <div class="controls">
                 <div class="control-group">
-                    <button id="btn-connect" class="btn btn-primary">Connect EV</button>
-                    <button id="btn-disconnect" class="btn btn-secondary">Disconnect EV</button>
+                    <button id="btn-connect" class="btn btn-primary" aria-describedby="ev-hint-connection">Connect EV</button>
+                    <button id="btn-disconnect" class="btn btn-secondary" aria-describedby="ev-hint-connection">Disconnect EV</button>
+                    <p id="ev-hint-connection" class="ev-hint" aria-live="polite"></p>
                 </div>
                 
                 <div class="control-group">
-                    <button id="btn-request-charge" class="btn btn-success">Request Charge</button>
-                    <button id="btn-stop-charge" class="btn btn-warning">Stop Charge</button>
+                    <button id="btn-request-charge" class="btn btn-success" aria-describedby="ev-hint-charge">Request Charge</button>
+                    <button id="btn-stop-charge" class="btn btn-warning" aria-describedby="ev-hint-charge">Stop Charge</button>
+                    <p id="ev-hint-charge" class="ev-hint" aria-live="polite"></p>
                 </div>
 
                 <div class="control-group">
