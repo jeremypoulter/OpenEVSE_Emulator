@@ -381,8 +381,11 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # Start emulator
-    emulator.start()
+    # Start emulator. It returns False only when it could not get going (the
+    # firmware or the serial port); otherwise it returns once the web server
+    # stops. Exit non-zero so Docker, supervisors and CI see the failure.
+    if emulator.start() is False:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -724,6 +724,28 @@ class TestEngineMode:
             evse.update_charging(5.76, 10.0)
         assert evse.get_status()["error_flags"] == 0
 
+    def test_a_native_session_is_timed_and_its_energy_kept(self):
+        """Mirrored state changes must run the same session lifecycle as the
+        Python model: time while charging, energy into the total on leaving."""
+        evse = self._charging_mirror()
+        for _ in range(3):
+            evse.update_charging(5.76, 10.0)
+        assert evse.get_status()["session_time"] == 30
+        evse.set_engine_state(0x01)
+        status = evse.get_status()
+        assert status["total_energy_wh"] > 0
+        assert status["session_energy_wh"] == 0
+        assert status["session_time"] == 0
+
+    def test_state_d_offers_no_current_but_b_does(self):
+        """The firmware will not charge through a vent request, so neither may
+        the simulated vehicle; B is the handshake and must still be offered."""
+        evse = self._charging_mirror()
+        evse.set_engine_state(0x04)
+        assert evse.offered_current_amps == 0
+        evse.set_engine_state(0x02)
+        assert evse.offered_current_amps > 0
+
     def test_temperature_follows_what_the_firmware_is_given(self):
         from src.emulator.evse import AMBIENT_TEMP
 

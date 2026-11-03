@@ -542,12 +542,7 @@ class EVSEStateMachine:
                 self._error_flags = 0
                 self._state = EVSEState.STATE_A_NOT_CONNECTED
                 self._actual_current_amps = 0.0
-                if self._session_start_time > 0:
-                    # Session ended
-                    self._total_energy_wh += self._session_energy_wh
-                    self._session_start_time = 0
-                    self._session_elapsed_sec = 0.0
-                    self._session_energy_wh = 0
+                self._end_session_locked()
             elif ev_pilot_state == "B":
                 self._state = EVSEState.STATE_B_CONNECTED
                 self._actual_current_amps = 0.0
@@ -555,9 +550,7 @@ class EVSEStateMachine:
                 if old_state != EVSEState.STATE_C_CHARGING:
                     self._actual_current_amps = self._offered_current_locked()
                 self._state = EVSEState.STATE_C_CHARGING
-                if self._session_start_time == 0:
-                    self._session_start_time = time.time()
-                    self._session_elapsed_sec = 0.0
+                self._start_session_locked()
             elif ev_pilot_state == "D":
                 # The EV simulator drives pilot "D" only when its diode check fails
                 # (see EVSimulator.get_pilot_resistance). Demote to connected-but-not-
@@ -583,11 +576,31 @@ class EVSEStateMachine:
             with self._lock:
                 self._notify_state_change(new_state)
 
+    def _start_session_locked(self) -> None:
+        """A session begins when the vehicle first asks to charge."""
+        if self._session_start_time == 0:
+            self._session_start_time = time.time()
+            self._session_elapsed_sec = 0.0
+
+    def _end_session_locked(self) -> None:
+        """A session ends when the vehicle leaves; its energy is kept in total."""
+        if self._session_start_time > 0:
+            self._total_energy_wh += self._session_energy_wh
+            self._session_start_time = 0
+            self._session_elapsed_sec = 0.0
+            self._session_energy_wh = 0
+
     @property
     def offered_current_amps(self) -> int:
-        """Current the vehicle may draw right now: nothing while faulted or off."""
+        """Current the vehicle may draw right now: nothing while faulted, off, or
+        asked to vent (state D, which the firmware refuses to charge through)."""
         with self._lock:
-            if self._error_flags or self._sleep_mode or self._disabled:
+            if (
+                self._error_flags
+                or self._sleep_mode
+                or self._disabled
+                or self._state == EVSEState.STATE_D_VENT_REQUIRED
+            ):
                 return 0
             return self._offered_current_locked()
 
@@ -697,6 +710,12 @@ class EVSEStateMachine:
             self._sleep_mode = state == EVSEState.STATE_SLEEP
             if state != EVSEState.STATE_C_CHARGING:
                 self._actual_current_amps = 0.0
+            # The same session lifecycle update_state keeps, or a native charge
+            # reports no session time and its energy never reaches the total.
+            if state == EVSEState.STATE_C_CHARGING:
+                self._start_session_locked()
+            elif state == EVSEState.STATE_A_NOT_CONNECTED:
+                self._end_session_locked()
             # n.b. called with the lock held: _notify_state_change releases and
             # reacquires it around the callbacks itself.
             self._notify_state_change(state)

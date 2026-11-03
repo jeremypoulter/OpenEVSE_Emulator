@@ -90,6 +90,33 @@ def test_default_step_interval_keeps_the_ui_responsive():
     assert config_json["simulation"]["update_interval_ms"] <= 200
 
 
+@pytest.mark.parametrize(
+    "start_result, exit_code",
+    [(False, 1), (None, None)],
+    ids=["failed-to-start", "ran-and-stopped"],
+)
+def test_main_exit_status_reflects_whether_the_emulator_started(
+    monkeypatch, start_result, exit_code
+):
+    """A start that failed must not look healthy to Docker or CI."""
+    from unittest.mock import MagicMock
+
+    import src.main as main_module
+
+    emulator = MagicMock()
+    emulator.start.return_value = start_result
+    monkeypatch.setattr(sys, "argv", ["main.py"])
+    monkeypatch.setattr(main_module, "OpenEVSEEmulator", lambda config: emulator)
+    monkeypatch.setattr(main_module.signal, "signal", lambda *args: None)
+
+    if exit_code is None:
+        main_module.main()
+    else:
+        with pytest.raises(SystemExit) as exc:
+            main_module.main()
+        assert exc.value.code == exit_code
+
+
 def test_no_offer_through_a_contactor_the_firmware_has_just_opened():
     """The firmware opens the contactor a moment before it announces the new
     state. Until it does, the mirror still says charging; offering the vehicle

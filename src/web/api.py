@@ -655,7 +655,8 @@ ws.onmessage = (event) => {
 
             if self.engine:
                 return self._firmware_control(
-                    "$SL %s" % {"L1": "1", "L2": "2", "Auto": "A"}[level]
+                    "$SL %s" % {"L1": "1", "L2": "2", "Auto": "A"}[level],
+                    adopt=lambda: setattr(self.evse, "service_level", level),
                 )
 
             self.evse.service_level = level
@@ -1058,10 +1059,12 @@ ws.onmessage = (event) => {
 
         return merged
 
-    def _firmware_control(self, command: str):
+    def _firmware_control(self, command: str, adopt: Optional[Callable] = None):
         """Run a control against the real firmware, as a gateway would, and say
         what it said. Changing only the mirror would report success and be
-        overwritten by the next thing the firmware announced."""
+        overwritten by the next thing the firmware announced. ``adopt`` runs
+        only once the firmware has accepted the command, to bring the mirror
+        into line with it for the parts the firmware does not announce."""
         ok, args = self.engine.command(command)
         if not ok:
             return (
@@ -1074,6 +1077,8 @@ ws.onmessage = (event) => {
                 ),
                 400,
             )
+        if adopt:
+            adopt()
         self._broadcast_status()
         return jsonify({"success": True})
 
