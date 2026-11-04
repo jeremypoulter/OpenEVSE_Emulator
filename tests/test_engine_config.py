@@ -237,18 +237,14 @@ class TestEngineControls:
         assert response.get_json()["success"] is False
         assert response.get_json()["firmware_reply"] == ["80"]
 
-    def test_an_accepted_service_level_reaches_the_mirror(self):
-        """The firmware does not announce its service level, so the mirror,
-        which sets the voltage the vehicle charges at, must take it from here."""
+    def test_a_service_level_change_is_not_set_on_the_mirror_directly(self):
+        """The level is the firmware's: the mirror takes it from the firmware's
+        report, never from the request. Setting it here would let the mirror
+        and the firmware disagree about the voltage the vehicle charges at."""
         api, _, client = self._client()
         self._post(client, "/api/evse/service_level", {"level": "L1"})
-        assert api.evse.service_level == "L1"
-        assert api.evse.get_status()["voltage"] == 120000
-
-    def test_a_refused_service_level_leaves_the_mirror_alone(self):
-        api, _, client = self._client(command_result=(False, ["80"]))
-        self._post(client, "/api/evse/service_level", {"level": "L1"})
         assert api.evse.service_level == "L2"
+        assert api.evse.get_status()["voltage"] == 240000
 
     def test_the_mirror_is_not_changed_behind_the_firmwares_back(self):
         api, _, client = self._client()

@@ -114,6 +114,11 @@ def _reply_fields(reply: str) -> list:
     return re.split(r"[\^*]", reply.strip())[0].split()
 
 
+# The service level is bit 0 of the firmware's flags word, which $GE reports
+# in its second field (ECF_L2 in J1772EvseController.h).
+FLAG_SERVICE_L2 = 0x0001
+
+
 class FirmwareEngine:
     """The natively-built safety firmware, wired to a simulated board."""
 
@@ -162,6 +167,8 @@ class FirmwareEngine:
         self.current_capacity: Optional[int] = None
         self.vflags: Optional[int] = None
         self.boot_postcode: Optional[int] = None
+        # "L1" or "L2", from $GE: the firmware decides it, the voltage follows
+        self.service_level: Optional[str] = None
         # from $GV, so the web model can report the firmware's own versions
         self.firmware_version: Optional[str] = None
         self.protocol_version: Optional[str] = None
@@ -276,6 +283,7 @@ class FirmwareEngine:
         self.set_pilot_band("A")
         self._read_version()
         self._read_calibration()
+        self._read_service_level()
 
     def _read_version(self) -> None:
         parts = _reply_fields(self.process_command(_rapi_frame("$GV")))
@@ -294,6 +302,19 @@ class FirmwareEngine:
                 return
             if scale > 0:
                 self._ammeter_scale, self._ammeter_offset = scale, offset
+
+    def _read_service_level(self) -> None:
+        """Take the service level from the firmware. It is the firmware's to set
+        (over RAPI, from the gateway or the web API) and to report, so nothing
+        in the emulator sets it: the voltage the vehicle charges at follows
+        from whatever the firmware says."""
+        parts = _reply_fields(self.process_command(_rapi_frame("$GE")))
+        if len(parts) >= 3 and parts[0] == "$OK":
+            try:
+                flags = int(parts[2], 16)
+            except ValueError:
+                return
+            self.service_level = "L2" if flags & FLAG_SERVICE_L2 else "L1"
 
     def _teardown(self) -> None:
         """Undo whatever start() managed to bring up, so a fresh start() can
@@ -681,9 +702,12 @@ class FirmwareEngine:
             self._resync_needed = True
             return "$NK^21\r"
 
-        # The ammeter calibration may have just changed ($SA)
+        # The ammeter calibration may have just changed ($SA), and so may the
+        # service level ($SL)
         if cmd.lstrip().upper().startswith("$SA") and reply.startswith("$OK"):
             self._read_calibration()
+        if cmd.lstrip().upper().startswith("$SL") and reply.startswith("$OK"):
+            self._read_service_level()
         return reply + "\r"
 
     def _write(self, cmd: str) -> bool:
@@ -800,6 +824,9 @@ class FirmwareEngine:
             evse.set_engine_state(state)
         if capacity is not None:
             evse.set_engine_capacity(capacity)
+        if self.service_level is not None:
+            # The setter also sets the voltage the vehicle is charged at
+            evse.service_level = self.service_level
         evse.set_engine_temperature(self.temperature_c10)
         # Report what is actually running, not the Python model's configured
         # version, which means nothing here.

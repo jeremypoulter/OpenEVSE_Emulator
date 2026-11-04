@@ -147,6 +147,48 @@ def test_calibration_is_reread_after_the_client_changes_it():
     engine._read_calibration.assert_not_called()
 
 
+# -- service level ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "flags,level,volts",
+    [("0001", "L2", 240000), ("0000", "L1", 120000)],
+    ids=["L2", "L1"],
+)
+def test_the_service_level_comes_from_the_firmwares_flags(flags, level, volts):
+    """The firmware keeps its level in the flags word; the mirror takes that and
+    derives the voltage from it, rather than being told the level."""
+    from src.emulator.evse import EVSEStateMachine
+
+    engine = FirmwareEngine(binary="unused")
+    engine.process_command = lambda *_: "$OK 32 %s^00\r" % flags
+    engine._read_service_level()
+
+    evse = EVSEStateMachine()
+    engine.mirror_into(evse)
+    assert engine.service_level == level
+    assert evse.service_level == level
+    assert evse.get_status()["voltage"] == volts
+
+
+def test_an_accepted_sl_rereads_the_service_level():
+    """A level change can come from the gateway over serial as well as from the
+    web API, and both go through the same command path."""
+    engine = FirmwareEngine(binary="unused")
+    engine._exchange = lambda cmd, timeout: "$OK"
+    engine._read_service_level = MagicMock()
+    engine._process_command_locked("$SL 1*00", 1.0)
+    engine._read_service_level.assert_called_once()
+
+
+def test_a_refused_sl_does_not_reread_the_service_level():
+    engine = FirmwareEngine(binary="unused")
+    engine._exchange = lambda cmd, timeout: "$NK"
+    engine._read_service_level = MagicMock()
+    engine._process_command_locked("$SL 1*00", 1.0)
+    engine._read_service_level.assert_not_called()
+
+
 # -- late replies ------------------------------------------------------------
 
 

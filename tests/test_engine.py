@@ -177,6 +177,21 @@ def test_ammeter_reads_what_the_vehicle_draws(engine):
     assert measured_amps() == pytest.approx(24.0, abs=1.0)
 
 
+def test_the_service_level_is_what_the_firmware_reports(engine):
+    """Changing the level goes to the firmware, and the emulator learns the
+    result from the firmware rather than being told it."""
+    _wait(lambda: engine.boot_postcode is not None, what="boot")
+    engine.process_command("$SB*B9")
+
+    ok, _ = engine.command("$SL 1")
+    assert ok
+    _wait(lambda: engine.service_level == "L1", what="firmware reports L1")
+
+    ok, _ = engine.command("$SL 2")
+    assert ok
+    _wait(lambda: engine.service_level == "L2", what="firmware reports L2")
+
+
 def test_clear_faults_recovers_a_latched_fault(engine):
     """The firmware holds a GFI trip until it is reset, and the native build
     cannot reset itself, so clearing must restart it."""
