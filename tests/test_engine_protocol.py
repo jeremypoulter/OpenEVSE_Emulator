@@ -217,6 +217,29 @@ def test_resync_gives_up_if_the_firmware_never_answers():
 
 
 @pytest.mark.parametrize(
+    "volts,expected_amps",
+    [(240.0, 24.0), (120.0, 48.0)],
+    ids=["L2", "L1"],
+)
+def test_the_ct_sees_the_current_the_vehicle_draws_at_its_supply_voltage(
+    volts, expected_amps
+):
+    """5.76 kW is 24 A at 240 V but 48 A at 120 V. Assuming 240 V halves the
+    current an L1 vehicle reports to the firmware."""
+    engine = FirmwareEngine(binary="unused")
+    engine.outputs = {"CHARGING": 1}
+    engine.set_pilot_band = MagicMock()
+    engine.set_charge_current = MagicMock()
+    ev = MagicMock()
+    ev.get_status.return_value = {"actual_charge_rate_kw": 5.76}
+
+    engine.apply_ev(ev, volts)
+
+    amps = engine.set_charge_current.call_args[0][0]
+    assert amps == pytest.approx(expected_amps)
+
+
+@pytest.mark.parametrize(
     "state,relay,expected",
     [
         (0x03, True, False),  # charging, contactor closed: normal

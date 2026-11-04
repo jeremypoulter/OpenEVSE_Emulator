@@ -483,12 +483,15 @@ class FirmwareEngine:
         with self._lock:
             return bool(self.outputs.get("CHARGING", 0))
 
-    def apply_ev(self, ev) -> None:
-        """Translate the simulated vehicle into what the firmware's inputs see."""
+    def apply_ev(self, ev, volts: float = 240.0) -> None:
+        """Translate the simulated vehicle into what the firmware's inputs see.
+
+        ``volts`` is the supply the vehicle is charging from, which is the
+        service level's voltage: the CT sees the current that power draws at
+        that voltage, so L1 (120 V) must not be read as if it were L2."""
         self.set_pilot_band(ev.get_pilot_resistance())
         status = ev.get_status()
         rate_kw = status.get("actual_charge_rate_kw", 0.0) or 0.0
-        volts = 240.0
         # No contactor, no current: the CT only sees what flows through a
         # closed relay. The vehicle may ask for power first (state C), and
         # the firmware closes the contactor in response.

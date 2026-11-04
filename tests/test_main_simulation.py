@@ -134,6 +134,20 @@ def test_no_offer_through_a_contactor_the_firmware_has_just_opened():
     assert offered == 0
 
 
+def test_the_firmware_is_given_the_voltage_the_vehicle_charges_at():
+    """After an L1 change the vehicle charges at 120 V; the CT feed must use it."""
+    from unittest.mock import MagicMock
+
+    emu = make_charging_emulator()
+    emu.engine = MagicMock()
+    emu.engine.charging_without_contactor.return_value = False
+    emu.evse.service_level = "L1"
+
+    emu._step(0.1)
+
+    assert emu.engine.apply_ev.call_args[0][1] == 120.0
+
+
 def test_the_offer_is_untouched_when_the_contactor_is_fine():
     from unittest.mock import MagicMock
 

@@ -296,7 +296,7 @@ class OpenEVSEEmulator:
             # adopt whatever it reports; nothing here works out what the
             # state ought to be, which is the point of engine mode. The
             # firmware also supervises its own heartbeat.
-            self.engine.apply_ev(self.ev)
+            self.engine.apply_ev(self.ev, self.evse.get_status()["voltage"] / 1000.0)
             self.engine.mirror_into(self.evse)
         else:
             # Update EV pilot state and get what EVSE should see
