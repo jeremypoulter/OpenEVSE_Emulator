@@ -165,6 +165,26 @@ class OpenEVSEEmulator:
         self.evse.current_capacity_amps = evse_config["default_current"]
         self.evse.service_level = evse_config["service_level"]
 
+    def _apply_engine_startup_config(self) -> None:
+        """Give the firmware the configured EVSE startup values.
+
+        _apply_startup_config only reaches the Python mirror, which the
+        firmware's own report overwrites, so in engine mode the configured
+        service level and current have to be sent as commands. The level goes
+        first because it bounds the current the firmware will accept.
+        """
+        evse_config = self.config["evse"]
+        level = evse_config["service_level"]
+        commands = []
+        if level == "Auto" or level != self.engine.service_level:
+            commands.append("$SL %s" % {"L1": "1", "L2": "2", "Auto": "A"}[level])
+        if evse_config["default_current"] != self.engine.current_capacity:
+            commands.append("$SC %d" % evse_config["default_current"])
+        for command in commands:
+            ok, _ = self.engine.command(command)
+            if not ok:
+                print(f"Warning: the firmware refused startup setting {command!r}")
+
     def start(self):
         """Start the emulator."""
         print("=" * 60)
@@ -178,6 +198,7 @@ class OpenEVSEEmulator:
             except EngineError as e:
                 print(f"Failed to start firmware engine: {e}")
                 return False
+            self._apply_engine_startup_config()
             board = self.engine.board
             version = self.engine.hello.get("version", "unknown")
             # Don't wait for the first simulation step: the web API is about

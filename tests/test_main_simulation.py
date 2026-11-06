@@ -159,3 +159,43 @@ def test_the_offer_is_untouched_when_the_contactor_is_fine():
     emu._step(0.1)
 
     assert emu.ev.update_charging.call_args[0][0] > 0
+
+
+def _startup_commands(config_level, config_amps, firmware_level, firmware_amps):
+    from unittest.mock import MagicMock
+
+    emu = make_charging_emulator()
+    emu.config["evse"].update(service_level=config_level, default_current=config_amps)
+    emu.engine = MagicMock()
+    emu.engine.service_level = firmware_level
+    emu.engine.current_capacity = firmware_amps
+    emu.engine.command.return_value = (True, [])
+    emu._apply_engine_startup_config()
+    return [call.args[0] for call in emu.engine.command.call_args_list]
+
+
+def test_configured_startup_values_are_sent_to_the_firmware():
+    """The mirror is overwritten by what the firmware reports, so the
+    configured level and current only take effect if they are commanded."""
+    assert _startup_commands("L1", 16, "L2", 32) == ["$SL 1", "$SC 16"]
+
+
+def test_startup_values_the_firmware_already_has_are_not_resent():
+    assert _startup_commands("L2", 32, "L2", 32) == []
+
+
+def test_auto_service_level_is_always_sent():
+    assert _startup_commands("Auto", 32, "L2", 32) == ["$SL A"]
+
+
+def test_a_refused_startup_setting_is_reported_not_fatal(capsys):
+    from unittest.mock import MagicMock
+
+    emu = make_charging_emulator()
+    emu.config["evse"].update(service_level="L1", default_current=16)
+    emu.engine = MagicMock()
+    emu.engine.service_level = "L2"
+    emu.engine.current_capacity = 32
+    emu.engine.command.return_value = (False, [])
+    emu._apply_engine_startup_config()
+    assert "refused startup setting '$SC 16'" in capsys.readouterr().out
