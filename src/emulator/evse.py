@@ -33,6 +33,13 @@ class EVSEState(IntEnum):
     STATE_STUCK_RELAY = 0x08
     STATE_GFCI_SELF_TEST_FAILED = 0x09
     STATE_OVER_TEMPERATURE = 0x0A
+    # The firmware also reports these; the Python model never raises them
+    # itself, but in engine mode the mirror has to be able to show them.
+    STATE_OVER_CURRENT = 0x0B
+    STATE_RELAY_CLOSURE_FAULT = 0x0E
+    STATE_PP_SHORTED = 0x0F
+    STATE_PP_MISSING = 0x10
+    STATE_EEPROM_FAILURE = 0x11
     STATE_SLEEP = 0xFE
     STATE_DISABLED = 0xFF
 
@@ -46,6 +53,11 @@ class ErrorFlags(IntEnum):
     DIODE_CHECK_FAILED = 0x08
     OVER_TEMPERATURE = 0x10
     GFI_SELF_TEST_FAILED = 0x20
+    OVER_CURRENT = 0x40
+    RELAY_CLOSURE_FAULT = 0x80
+    PP_SHORTED = 0x100
+    PP_MISSING = 0x200
+    EEPROM_FAILURE = 0x400
 
 
 # Map an active error flag to the OpenEVSE fault state it should report.
@@ -57,7 +69,18 @@ ERROR_FLAG_TO_STATE = [
     (ErrorFlags.NO_GROUND, EVSEState.STATE_NO_GROUND),
     (ErrorFlags.GFCI_TRIP, EVSEState.STATE_GFCI_FAULT),
     (ErrorFlags.DIODE_CHECK_FAILED, EVSEState.STATE_DIODE_CHECK_FAILED),
+    (ErrorFlags.EEPROM_FAILURE, EVSEState.STATE_EEPROM_FAILURE),
+    (ErrorFlags.OVER_CURRENT, EVSEState.STATE_OVER_CURRENT),
+    (ErrorFlags.RELAY_CLOSURE_FAULT, EVSEState.STATE_RELAY_CLOSURE_FAULT),
+    (ErrorFlags.PP_SHORTED, EVSEState.STATE_PP_SHORTED),
+    (ErrorFlags.PP_MISSING, EVSEState.STATE_PP_MISSING),
 ]
+
+# The reverse of the above: which error flag a fault state reported by the
+# engine's firmware corresponds to. The firmware's own vflags bits (ECVF_*)
+# are a different bitmask, unrelated to ErrorFlags, so the state code -- not
+# vflags -- is what tells us which flag to raise.
+STATE_TO_ERROR_FLAG = {state: flag for flag, state in ERROR_FLAG_TO_STATE}
 
 
 class EVSEStateMachine:
@@ -76,6 +99,10 @@ class EVSEStateMachine:
         """
         self._state_change_callbacks: list[Callable] = []
         self._lock = threading.Lock()
+        # Engine mode: the firmware owns every fault, so this object must not
+        # raise any of its own. See set_engine_mode(). Set here, not in
+        # _init_state, so restoring the defaults does not switch it off.
+        self._engine_mode = False
         self._defaults = (firmware_version, protocol_version)
         self._init_state(firmware_version, protocol_version)
 
@@ -515,12 +542,7 @@ class EVSEStateMachine:
                 self._error_flags = 0
                 self._state = EVSEState.STATE_A_NOT_CONNECTED
                 self._actual_current_amps = 0.0
-                if self._session_start_time > 0:
-                    # Session ended
-                    self._total_energy_wh += self._session_energy_wh
-                    self._session_start_time = 0
-                    self._session_elapsed_sec = 0.0
-                    self._session_energy_wh = 0
+                self._end_session_locked()
             elif ev_pilot_state == "B":
                 self._state = EVSEState.STATE_B_CONNECTED
                 self._actual_current_amps = 0.0
@@ -528,9 +550,7 @@ class EVSEStateMachine:
                 if old_state != EVSEState.STATE_C_CHARGING:
                     self._actual_current_amps = self._offered_current_locked()
                 self._state = EVSEState.STATE_C_CHARGING
-                if self._session_start_time == 0:
-                    self._session_start_time = time.time()
-                    self._session_elapsed_sec = 0.0
+                self._start_session_locked()
             elif ev_pilot_state == "D":
                 # The EV simulator drives pilot "D" only when its diode check fails
                 # (see EVSimulator.get_pilot_resistance). Demote to connected-but-not-
@@ -556,11 +576,31 @@ class EVSEStateMachine:
             with self._lock:
                 self._notify_state_change(new_state)
 
+    def _start_session_locked(self) -> None:
+        """A session begins when the vehicle first asks to charge."""
+        if self._session_start_time == 0:
+            self._session_start_time = time.time()
+            self._session_elapsed_sec = 0.0
+
+    def _end_session_locked(self) -> None:
+        """A session ends when the vehicle leaves; its energy is kept in total."""
+        if self._session_start_time > 0:
+            self._total_energy_wh += self._session_energy_wh
+            self._session_start_time = 0
+            self._session_elapsed_sec = 0.0
+            self._session_energy_wh = 0
+
     @property
     def offered_current_amps(self) -> int:
-        """Current the vehicle may draw right now: nothing while faulted or off."""
+        """Current the vehicle may draw right now: nothing while faulted, off, or
+        asked to vent (state D, which the firmware refuses to charge through)."""
         with self._lock:
-            if self._error_flags or self._sleep_mode or self._disabled:
+            if (
+                self._error_flags
+                or self._sleep_mode
+                or self._disabled
+                or self._state == EVSEState.STATE_D_VENT_REQUIRED
+            ):
                 return 0
             return self._offered_current_locked()
 
@@ -597,18 +637,25 @@ class EVSEStateMachine:
                 energy_wh = (actual_charge_rate_kw * delta_time_sec * 1000.0) / 3600.0
                 self._session_energy_wh += energy_wh
 
-                # Simulate temperature increase during charging
-                # Fractional tenths: int() here would round short steps to zero.
-                # Not clamped at the threshold, or the check below could never fire.
-                self._temperature_ds += delta_time_sec * 0.5
-                self._temperature_mcp += delta_time_sec * 0.5
+                # Simulate temperature increase during charging. Not in engine
+                # mode: the firmware reads its own sensors and decides what a
+                # temperature means, and this object raising a fault of its
+                # own would cut a perfectly healthy charge short.
+                if not self._engine_mode:
+                    # Fractional tenths: int() here would round short steps to
+                    # zero. Not clamped at the threshold, or the check below
+                    # could never fire.
+                    self._temperature_ds += delta_time_sec * 0.5
+                    self._temperature_mcp += delta_time_sec * 0.5
 
-                # Check for over-temperature
-                if (
-                    self._temperature_ds > OVER_TEMP_THRESHOLD
-                    or self._temperature_mcp > OVER_TEMP_THRESHOLD
-                ):
-                    self._trigger_error_internal(ErrorFlags.OVER_TEMPERATURE)
+                    # Check for over-temperature
+                    if (
+                        self._temperature_ds > OVER_TEMP_THRESHOLD
+                        or self._temperature_mcp > OVER_TEMP_THRESHOLD
+                    ):
+                        self._trigger_error_internal(ErrorFlags.OVER_TEMPERATURE)
+            elif self._engine_mode:
+                self._actual_current_amps = 0.0
             else:
                 # Nothing is flowing, so the measured current must say so
                 self._actual_current_amps = 0.0
@@ -619,6 +666,64 @@ class EVSEStateMachine:
                 self._temperature_mcp = max(
                     AMBIENT_TEMP, self._temperature_mcp - delta_time_sec * 2.0
                 )
+
+    # -- engine mode -------------------------------------------------------
+    #
+    # In engine mode the real firmware owns the state machine, and these push
+    # what it reported into this object so the web UI and API report the
+    # firmware's decisions rather than a parallel simulation of them. They
+    # deliberately bypass the transition logic below: there is nothing to
+    # decide here any more, only something to reflect.
+
+    def set_engine_mode(self) -> None:
+        """Mark this object as a mirror of the firmware. From here it reports
+        what the firmware reports and simulates nothing of its own that could
+        fault: the firmware is the only thing that decides that."""
+        with self._lock:
+            self._engine_mode = True
+
+    def set_engine_temperature(self, tenths_c: int | None) -> None:
+        """Adopt the temperature the firmware's sensor is presented with, or
+        ambient when nothing is."""
+        with self._lock:
+            value = AMBIENT_TEMP if tenths_c is None else tenths_c
+            self._temperature_ds = value
+            self._temperature_mcp = value
+
+    def set_engine_state(self, state_code: int) -> None:
+        """Adopt an EVSE state reported by the firmware over RAPI."""
+        try:
+            state = EVSEState(state_code)
+        except ValueError:
+            return  # a state this emulator does not model; leave the last one
+        with self._lock:
+            if self._state == state:
+                return
+            self._state = state
+            # The firmware is the authority in engine mode, so its state must
+            # not be masked by flags this object set for itself. Re-derive
+            # error_flags from the reported state rather than clearing it
+            # outright, so API consumers still see a fault the firmware
+            # reported instead of always reading 0.
+            self._error_flags = STATE_TO_ERROR_FLAG.get(state, 0)
+            self._disabled = state == EVSEState.STATE_DISABLED
+            self._sleep_mode = state == EVSEState.STATE_SLEEP
+            if state != EVSEState.STATE_C_CHARGING:
+                self._actual_current_amps = 0.0
+            # The same session lifecycle update_state keeps, or a native charge
+            # reports no session time and its energy never reaches the total.
+            if state == EVSEState.STATE_C_CHARGING:
+                self._start_session_locked()
+            elif state == EVSEState.STATE_A_NOT_CONNECTED:
+                self._end_session_locked()
+            # n.b. called with the lock held: _notify_state_change releases and
+            # reacquires it around the callbacks itself.
+            self._notify_state_change(state)
+
+    def set_engine_capacity(self, amps: int) -> None:
+        """Adopt the ampacity the firmware is advertising to the vehicle."""
+        with self._lock:
+            self._current_capacity_amps = amps
 
     def get_status(self) -> dict:
         """

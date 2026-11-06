@@ -208,3 +208,6 @@ __marimo__/
 
 # Generated wiki documentation (auto-generated from openapi.yaml)
 wiki/
+
+# Engine mode: EEPROM backing file written by the native firmware
+openevse_eeprom.bin

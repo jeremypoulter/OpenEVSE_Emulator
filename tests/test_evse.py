@@ -1,5 +1,7 @@
 """Tests for EVSE state machine."""
 
+import pytest
+
 from src.emulator.evse import EVSEStateMachine, EVSEState, ErrorFlags
 
 
@@ -679,3 +681,98 @@ def test_zero_power_step_reports_no_current():
     evse.update_state("C")
     evse.update_charging(0.0, 1.0)
     assert evse.get_status()["actual_current"] == 0
+
+
+class TestEngineMode:
+    """In engine mode this object mirrors the firmware, so it must not raise
+    faults of its own: the firmware is the only thing that decides those."""
+
+    @staticmethod
+    def _charging_mirror():
+        from src.emulator.evse import EVSEStateMachine
+
+        evse = EVSEStateMachine()
+        evse.set_engine_mode()
+        evse.set_engine_state(0x03)  # the firmware says it is charging
+        return evse
+
+    def test_a_long_charge_never_overheats_the_model(self):
+        evse = self._charging_mirror()
+        # Far past the 800 s the thermal model needs to reach its limit
+        for _ in range(500):
+            evse.update_charging(5.76, 10.0)
+        status = evse.get_status()
+        assert status["error_flags"] == 0
+        assert status["state"] == 0x03
+        assert evse.offered_current_amps > 0
+
+    def test_the_python_evse_still_simulates_heating(self):
+        from src.emulator.evse import EVSEStateMachine
+
+        evse = EVSEStateMachine()
+        evse.update_state("B")
+        evse.update_state("C")
+        for _ in range(100):
+            evse.update_charging(5.76, 10.0)
+        assert evse.get_status()["error_flags"] != 0
+
+    def test_engine_mode_survives_restoring_the_defaults(self):
+        evse = self._charging_mirror()
+        evse.restore_defaults()
+        evse.set_engine_state(0x03)
+        for _ in range(500):
+            evse.update_charging(5.76, 10.0)
+        assert evse.get_status()["error_flags"] == 0
+
+    def test_a_native_session_is_timed_and_its_energy_kept(self):
+        """Mirrored state changes must run the same session lifecycle as the
+        Python model: time while charging, energy into the total on leaving."""
+        evse = self._charging_mirror()
+        for _ in range(3):
+            evse.update_charging(5.76, 10.0)
+        assert evse.get_status()["session_time"] == 30
+        evse.set_engine_state(0x01)
+        status = evse.get_status()
+        assert status["total_energy_wh"] > 0
+        assert status["session_energy_wh"] == 0
+        assert status["session_time"] == 0
+
+    def test_state_d_offers_no_current_but_b_does(self):
+        """The firmware will not charge through a vent request, so neither may
+        the simulated vehicle; B is the handshake and must still be offered."""
+        evse = self._charging_mirror()
+        evse.set_engine_state(0x04)
+        assert evse.offered_current_amps == 0
+        evse.set_engine_state(0x02)
+        assert evse.offered_current_amps > 0
+
+    def test_temperature_follows_what_the_firmware_is_given(self):
+        from src.emulator.evse import AMBIENT_TEMP
+
+        evse = self._charging_mirror()
+        evse.set_engine_temperature(950)
+        assert evse.get_status()["temperature_mcp"] == 95.0
+        evse.set_engine_temperature(None)
+        assert evse.get_status()["temperature_mcp"] == AMBIENT_TEMP / 10.0
+
+
+@pytest.mark.parametrize(
+    "code",
+    [0x0B, 0x0E, 0x0F, 0x10, 0x11],
+    ids=["over-current", "relay-closure", "pp-shorted", "pp-missing", "eeprom"],
+)
+def test_the_mirror_shows_every_fault_state_the_firmware_defines(code):
+    """A fault state the model does not know used to be ignored, leaving the
+    mirror -- and the vehicle -- on a healthy charge after the firmware had
+    shut down."""
+    from src.emulator.evse import EVSEStateMachine
+
+    evse = EVSEStateMachine()
+    evse.set_engine_mode()
+    evse.set_engine_state(0x03)
+    evse.set_engine_state(code)
+
+    status = evse.get_status()
+    assert status["state"] == code
+    assert status["error_flags"] != 0
+    assert evse.offered_current_amps == 0

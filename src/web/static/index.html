@@ -78,12 +78,13 @@
                     <div id="service-level-value" class="readonly-value">L2 (240V)</div>
                 </div>
                 <div class="control-group readonly-row">
-                    <div class="readonly-label">Firmware Version</div>
+                    <div id="firmware-version-label" class="readonly-label">Firmware Version</div>
                     <select id="firmware-version" class="readonly-value">
                         <option value="8.2.3">8.2.3</option>
                         <option value="9.0.0">9.0.0</option>
                         <option value="9.3.0">9.3.0</option>
                     </select>
+                    <div id="firmware-version-native" class="readonly-value" style="display: none"></div>
                 </div>
                 <div class="control-group readonly-row">
                     <div class="readonly-label">Protocol Version</div>
@@ -97,13 +98,15 @@
             <h2>EV Simulator</h2>
             <div class="controls">
                 <div class="control-group">
-                    <button id="btn-connect" class="btn btn-primary">Connect EV</button>
-                    <button id="btn-disconnect" class="btn btn-secondary">Disconnect EV</button>
+                    <button id="btn-connect" class="btn btn-primary" aria-describedby="ev-hint-connection">Connect EV</button>
+                    <button id="btn-disconnect" class="btn btn-secondary" aria-describedby="ev-hint-connection">Disconnect EV</button>
+                    <p id="ev-hint-connection" class="ev-hint" aria-live="polite"></p>
                 </div>
                 
                 <div class="control-group">
-                    <button id="btn-request-charge" class="btn btn-success">Request Charge</button>
-                    <button id="btn-stop-charge" class="btn btn-warning">Stop Charge</button>
+                    <button id="btn-request-charge" class="btn btn-success" aria-describedby="ev-hint-charge">Request Charge</button>
+                    <button id="btn-stop-charge" class="btn btn-warning" aria-describedby="ev-hint-charge">Stop Charge</button>
+                    <p id="ev-hint-charge" class="ev-hint" aria-live="polite"></p>
                 </div>
 
                 <div class="control-group">
@@ -177,6 +180,29 @@
         <!-- Serial Monitor -->
         <div class="panel serial-monitor">
             <h2>RAPI Serial Monitor</h2>
+            <p class="readonly-note">
+                What the serial client (the WiFi firmware) was last told, per command. Age is the time
+                since it last asked; a polled command with a growing age means the client has stopped asking.
+            </p>
+            <div class="rapi-table-wrap">
+                <table class="rapi-table" id="rapi-last">
+                    <thead>
+                        <tr>
+                            <th>Command</th>
+                            <th>Last reply</th>
+                            <th>Decoded</th>
+                            <th>Age</th>
+                            <th>Count</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rapi-last-body">
+                        <tr><td colspan="5" class="rapi-empty">No serial traffic yet</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <label class="serial-live">
+                <input type="checkbox" id="serial-live"> Show live traffic below
+            </label>
             <div class="serial-output" id="serial-output">
                 <div class="serial-line info">OpenEVSE Emulator - Serial Monitor Active</div>
             </div>

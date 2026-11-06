@@ -22,6 +22,81 @@ function syncSlider(id, value) {
     document.getElementById(`${id}-value`).textContent = value;
 }
 
+// Which EV simulator buttons make sense right now, and for each one that does
+// not, why. A button that does nothing teaches nothing; greyed out with the
+// reason as its tooltip, it says what has to happen first. Kept free of the
+// DOM so the rules can be tested on their own.
+function evButtonStates(ev) {
+    const connected = Boolean(ev.connected);
+    const requesting = Boolean(ev.requesting_charge);
+    // In battery mode a vehicle at its charge limit stops asking at once, so
+    // asking again cannot start anything. Direct mode ignores the limit.
+    const atLimit = !ev.direct_mode && ev.soc >= (ev.charge_limit_soc ?? 100);
+
+    const state = (enabled, reason) => ({ enabled, reason: enabled ? '' : reason });
+    return {
+        connect: state(!connected, 'The EV is already connected'),
+        disconnect: state(connected, 'The EV is not connected'),
+        requestCharge: state(
+            connected && !requesting && !atLimit,
+            !connected ? 'Connect the EV first'
+                : requesting ? 'The EV is already requesting a charge'
+                : 'The battery has reached its charge limit'),
+        stopCharge: state(
+            connected && requesting,
+            !connected ? 'The EV is not connected' : 'The EV is not requesting a charge'),
+    };
+}
+
+const EV_BUTTONS = {
+    connect: { id: 'btn-connect', label: 'Connect EV', hint: 'ev-hint-connection' },
+    disconnect: { id: 'btn-disconnect', label: 'Disconnect EV', hint: 'ev-hint-connection' },
+    requestCharge: { id: 'btn-request-charge', label: 'Request Charge', hint: 'ev-hint-charge' },
+    stopCharge: { id: 'btn-stop-charge', label: 'Stop Charge', hint: 'ev-hint-charge' },
+};
+
+// The visible explanation for each group of buttons: why the ones that are
+// unavailable are. Text on the page, rather than a tooltip, because a
+// disabled control's title is not reliably exposed to keyboard or screen
+// reader users.
+function evButtonHints(states) {
+    const hints = {};
+    for (const [name, button] of Object.entries(EV_BUTTONS)) {
+        hints[button.hint] = hints[button.hint] || [];
+        if (!states[name].enabled) {
+            hints[button.hint].push(`${button.label} is unavailable: ${states[name].reason}.`);
+        }
+    }
+    return Object.fromEntries(
+        Object.entries(hints).map(([id, lines]) => [id, lines.join(' ')]));
+}
+
+// aria-disabled, not disabled: the button stays focusable, so keyboard and
+// screen reader users reach it and hear why it does nothing (aria-describedby
+// points at the hint). The click handlers ignore it while it is set.
+function applyEvButtonStates(ev) {
+    const states = evButtonStates(ev);
+    for (const [name, button] of Object.entries(EV_BUTTONS)) {
+        const element = document.getElementById(button.id);
+        element.setAttribute('aria-disabled', String(!states[name].enabled));
+        element.classList.toggle('is-disabled', !states[name].enabled);
+        element.title = states[name].reason;
+    }
+    for (const [id, text] of Object.entries(evButtonHints(states))) {
+        document.getElementById(id).textContent = text;
+    }
+}
+
+// Run an EV button's action unless it is currently unavailable
+function evAction(id, action) {
+    document.getElementById(id).addEventListener('click', (event) => {
+        if (event.currentTarget.getAttribute('aria-disabled') === 'true') {
+            return;
+        }
+        action();
+    });
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeControls();
@@ -30,15 +105,17 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Refresh status every 2 seconds
     setInterval(fetchStatus, 2000);
+    refreshRapiLast();
+    setInterval(refreshRapiLast, 2000);
 });
 
 // Initialize control event listeners
 function initializeControls() {
     // EV controls
-    document.getElementById('btn-connect').addEventListener('click', () => apiCall('/api/ev/connect', 'POST'));
-    document.getElementById('btn-disconnect').addEventListener('click', () => apiCall('/api/ev/disconnect', 'POST'));
-    document.getElementById('btn-request-charge').addEventListener('click', () => apiCall('/api/ev/request_charge', 'POST'));
-    document.getElementById('btn-stop-charge').addEventListener('click', () => apiCall('/api/ev/stop_charge', 'POST'));
+    evAction('btn-connect', () => apiCall('/api/ev/connect', 'POST'));
+    evAction('btn-disconnect', () => apiCall('/api/ev/disconnect', 'POST'));
+    evAction('btn-request-charge', () => apiCall('/api/ev/request_charge', 'POST'));
+    evAction('btn-stop-charge', () => apiCall('/api/ev/stop_charge', 'POST'));
     
     document.getElementById('battery-soc').addEventListener('input', function(e) {
         document.getElementById('battery-soc-value').textContent = e.target.value;
@@ -128,6 +205,20 @@ function initializeWebSocket() {
         addSerialLine('WebSocket disconnected', 'error');
     });
     
+    // Live serial traffic, when asked for: a polling client can send several
+    // commands a second, which would otherwise bury everything else.
+    socket.on('rapi', function(entry) {
+        if (!document.getElementById('serial-live').checked) {
+            return;
+        }
+        if (entry.kind === 'async') {
+            addSerialLine(`\u21d0 ${entry.response}`, 'response');
+            return;
+        }
+        addSerialLine(`\u2192 ${entry.request}`, 'command');
+        addSerialLine(`\u2190 ${entry.response}`, entry.ok ? 'response' : 'error');
+    });
+
     socket.on('state_change', function(data) {
         addSerialLine(`State changed to: ${data.state_name}`, 'info');
         updateStatus();
@@ -143,6 +234,50 @@ function initializeWebSocket() {
         addSerialLine(`Error: ${data.message}`, 'error');
         updateStatus();
     });
+}
+
+// Last request and reply seen for each RAPI command
+async function refreshRapiLast() {
+    try {
+        const response = await fetch('/api/rapi/last');
+        const data = await response.json();
+        renderRapiLast(data.commands || []);
+    } catch (error) {
+        console.error('Failed to fetch RAPI monitor:', error);
+    }
+}
+
+function renderRapiLast(commands) {
+    const body = document.getElementById('rapi-last-body');
+    body.textContent = '';
+    if (commands.length === 0) {
+        const row = body.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 5;
+        cell.className = 'rapi-empty';
+        cell.textContent = 'No serial traffic yet';
+        return;
+    }
+    for (const entry of commands) {
+        const row = body.insertRow();
+        // A polled command that has gone quiet is the thing worth noticing
+        if (entry.kind === 'query' && entry.age_sec > 10) {
+            row.className = 'stale';
+        } else if (!entry.ok) {
+            row.className = 'nk';
+        }
+        const decoded = Object.entries(entry.fields || {})
+            .map(([name, value]) => `${name}=${value}`)
+            .join('  ');
+        // textContent throughout: these are bytes from the serial client
+        row.insertCell().textContent = `$${entry.command}`;
+        const reply = row.insertCell();
+        reply.className = 'rapi-reply';
+        reply.textContent = entry.response;
+        row.insertCell().textContent = decoded;
+        row.insertCell().textContent = `${entry.age_sec} s`;
+        row.insertCell().textContent = entry.count;
+    }
 }
 
 // Fetch current status from API
@@ -290,8 +425,24 @@ function updateDisplay() {
     // Read-only EVSE configuration
     document.getElementById('current-capacity-value').textContent = `${evse.current_capacity} A`;
     document.getElementById('service-level-value').textContent = evse.service_level || 'Unknown';
-    document.getElementById('firmware-version').value = evse.firmware_version || '8.2.3';
+    // In engine mode the firmware is the native build, so show what it reported
+    // rather than a profile the user could pick. The Python model has no such
+    // build and keeps the selector.
+    const engineMode = Boolean(evse.engine);
+    const firmwareSelect = document.getElementById('firmware-version');
+    const firmwareNative = document.getElementById('firmware-version-native');
+    firmwareSelect.style.display = engineMode ? 'none' : '';
+    firmwareNative.style.display = engineMode ? '' : 'none';
+    if (engineMode) {
+        firmwareNative.textContent = evse.firmware_version || 'Unknown';
+        document.getElementById('firmware-version-label').textContent = 'Firmware Version (native)';
+    } else {
+        firmwareSelect.value = evse.firmware_version || '8.2.3';
+        document.getElementById('firmware-version-label').textContent = 'Firmware Version';
+    }
     document.getElementById('protocol-version').textContent = evse.protocol_version || '-';
+
+    applyEvButtonStates(ev);
 
     // EV sliders. SoC does move on its own while charging, so it keeps
     // refreshing - just not out from under a drag.

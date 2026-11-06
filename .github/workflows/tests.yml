@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# The firmware that engine mode runs, built natively. Until the native target
+# is merged into OpenEVSE/open_evse this points at the PR branch; set the
+# FIRMWARE_REPO (a GitHub owner/repo) / FIRMWARE_REF (branch, tag or commit)
+# repository variables to follow it elsewhere. Both this workflow and the
+# Docker build use the same format and resolve the ref to an exact commit.
+env:
+  FIRMWARE_REPO: ${{ vars.FIRMWARE_REPO || 'jeremypoulter/open_evse' }}
+  FIRMWARE_REF: ${{ vars.FIRMWARE_REF || 'feat/native-target' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -37,6 +46,104 @@ jobs:
       if: matrix.python-version == '3.14'
       with:
         fail_ci_if_error: false
+
+  # Build the real safety firmware for the host, once, and share it: the engine
+  # tests below use it, and it is kept as an artifact so a failing run can be
+  # reproduced locally against the very binaries CI used.
+  firmware:
+    runs-on: ubuntu-latest
+    # The build below runs code from the firmware repository, which is
+    # configurable, so give it nothing it does not need
+    permissions:
+      contents: read
+
+    steps:
+    # An exact commit, shared with the Docker build, rather than a branch that
+    # can move between the two
+    - name: Resolve firmware commit
+      id: firmware
+      run: |
+        ref="${FIRMWARE_REF}"
+        if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+          ref="$(git ls-remote "https://github.com/${FIRMWARE_REPO}.git" "$ref" | head -1 | cut -f1)"
+        fi
+        test -n "$ref" || { echo "cannot resolve ${FIRMWARE_REF} in ${FIRMWARE_REPO}" >&2; exit 1; }
+        echo "commit=$ref" >> "$GITHUB_OUTPUT"
+        echo "Firmware: ${FIRMWARE_REPO}@${ref} (${FIRMWARE_REF})" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Check out the firmware
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ env.FIRMWARE_REPO }}
+        ref: ${{ steps.firmware.outputs.commit }}
+        # Not needed to build, and the build runs this repository's code
+        persist-credentials: false
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+
+    - name: Cache PlatformIO
+      uses: actions/cache@v5
+      with:
+        path: ~/.platformio
+        key: platformio-native-${{ runner.os }}-${{ hashFiles('platformio.ini', 'firmware/targets/native/platformio.ini') }}
+
+    - name: Build native firmware
+      run: |
+        pip install platformio
+        pio run -e native_oev6 -e native_nxt
+        mkdir -p native-firmware
+        cp .pio/build/native_oev6/program native-firmware/native_oev6
+        cp .pio/build/native_nxt/program native-firmware/native_nxt
+        echo "${{ steps.firmware.outputs.commit }}" > native-firmware/FIRMWARE_COMMIT
+
+    - name: Upload firmware
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-firmware
+        path: native-firmware/
+        if-no-files-found: error
+
+  # The whole suite against the real firmware as well as the Python EVSE. The
+  # engine tests skip when no binary is found; here that must be a failure, or
+  # a broken firmware build would turn this job green by testing nothing.
+  engine-tests:
+    needs: firmware
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.14']
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ matrix.python-version }}
+        allow-prereleases: true
+
+    - name: Download firmware
+      uses: actions/download-artifact@v4
+      with:
+        name: native-firmware
+        path: native-firmware
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+
+    - name: Run engine and conformance tests
+      env:
+        OPENEVSE_NATIVE_DIR: ${{ github.workspace }}/native-firmware
+        OPENEVSE_REQUIRE_ENGINE: "1"
+      run: |
+        chmod +x native-firmware/*
+        pytest tests/ -v -rsxX
 
   lint:
     runs-on: ubuntu-latest

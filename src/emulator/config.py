@@ -85,9 +85,19 @@ def default_config() -> dict:
         },
         "web": {"host": "0.0.0.0", "port": 8080},
         "simulation": {
-            "update_interval_ms": 1000,
+            "update_interval_ms": 100,
             "temperature_simulation": True,
             "realistic_charge_curve": True,
+        },
+        # Engine mode: run the real safety firmware instead of emulating it.
+        # Off by default -- it needs a natively-built binary from the
+        # open_evse repository, and the Python EVSE is the zero-setup path.
+        "engine": {
+            "enabled": False,
+            "binary": "",
+            "board": "",
+            "eeprom": "",
+            "wait_ms": 10000,
         },
     }
 
@@ -178,6 +188,10 @@ ENV_OVERRIDE_PATHS = {
     "SERIAL_RECONNECT_BACKOFF": "serial.reconnect_backoff_ms",
     "WEB_HOST": "web.host",
     "WEB_PORT": "web.port",
+    "ENGINE_ENABLED": "engine.enabled",
+    "ENGINE_BINARY": "engine.binary",
+    "ENGINE_BOARD": "engine.board",
+    "ENGINE_EEPROM": "engine.eeprom",
     "EV_RANGE_KM_AT_FULL": "ev.range_km_at_full",
     "EV_CHARGE_LIMIT_SOC": "ev.charge_limit_soc",
     "REPORTING_INTERVAL": "reporting.interval_sec",
@@ -227,6 +241,7 @@ ENV_OVERRIDE_TYPES = {
     "serial.reconnect_timeout_sec": int,
     "serial.reconnect_backoff_ms": int,
     "web.port": int,
+    "engine.enabled": _parse_bool,
     "ev.range_km_at_full": float,
     "ev.charge_limit_soc": float,
     "reporting.interval_sec": float,
@@ -302,6 +317,10 @@ CLI_OVERRIDE_PATHS = {
     "ev_max_charge_rate_kw": "ev.max_charge_rate_kw",
     "ev_range_km_at_full": "ev.range_km_at_full",
     "ev_charge_limit_soc": "ev.charge_limit_soc",
+    "engine_enabled": "engine.enabled",
+    "engine_binary": "engine.binary",
+    "engine_board": "engine.board",
+    "engine_eeprom": "engine.eeprom",
     "reporting_interval": "reporting.interval_sec",
     "reporting_http_enabled": "reporting.http.enabled",
     "reporting_mqtt_enabled": "reporting.mqtt.enabled",
